@@ -7,12 +7,14 @@
     python sst_tool.py summary                 # 海域ごとの年平均・長期トレンド(℃/10年)を表示しCSV保存
     python sst_tool.py plot                    # 図を out/ に保存 (推移・偏差・年×日ヒートマップ・年平均トレンド)
     python sst_tool.py plot --area 宮城県沿岸   # 1海域だけ
-    python sst_tool.py player --start 2020-01-01 --end 2020-12-31 --save out/player.gif
-    python sst_tool.py player                  # 画面表示で再生 (要GUI)
+    python sst_tool.py map --date 2025-08-15   # その日の海水温を東北の地図+等温線で表示(out/にPNG保存)
+    python sst_tool.py player --start 2025-06-01 --end 2025-09-30   # 期間を再生 (画面表示)
+    python sst_tool.py player --start 2025-06-01 --end 2025-09-30 --step 3 --save out/player.gif
 必要: pip install numpy pandas matplotlib (--save gif は pillow)
 """
 import argparse
 import glob
+import math
 import os
 
 import matplotlib
@@ -24,21 +26,20 @@ import pandas as pd
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "out")
 BASE_YEARS = (1991, 2020)  # 平年値の期間 (気象庁と同じ30年)
-TMIN, TMAX = 0, 28
 
 # 海域の代表点 (概算値。地図上の位置合わせ用なので必要に応じて修正してください)
 AREAS = {
-    113: ("津軽海峡の西側", 41.55, 140.15),
+    113: ("津軽海峡の西側", 41.35, 140.35),
     114: ("青森県日本海沿岸", 40.85, 139.75),
-    115: ("津軽海峡", 41.60, 140.75),
-    116: ("津軽海峡の東側", 41.60, 141.40),
+    115: ("津軽海峡", 41.55, 140.70),
+    116: ("津軽海峡の東側", 41.60, 141.50),
     117: ("青森県太平洋沿岸", 40.80, 141.90),
     130: ("陸奥湾", 41.05, 140.90),
     131: ("秋田県沿岸", 39.70, 139.70),
-    132: ("岩手県北部沿岸", 40.05, 142.30),
-    133: ("岩手県南部沿岸", 39.15, 142.30),
+    132: ("岩手県北部沿岸", 40.05, 142.15),
+    133: ("岩手県南部沿岸", 39.15, 142.20),
     134: ("山形県沿岸", 38.85, 139.45),
-    135: ("宮城県沿岸", 38.15, 141.55),
+    135: ("宮城県沿岸", 38.20, 141.60),
     136: ("福島県沿岸", 37.35, 141.30),
 }
 
@@ -170,45 +171,155 @@ def cmd_plot(df, args):
     print("保存先:", OUT)
 
 
+DEM_URL = "https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png"  # 国土地理院 標高タイル
+EXTENT = (138.6, 143.4, 36.6, 42.2)  # 東北地方 (経度min, max, 緯度min, max)
+
+
+def _tile_xy(lon, lat, z):
+    n = 2 ** z
+    return (lon + 180) / 360 * n, (1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * n
+
+
+def load_land(z=8, cache_dir=os.path.join(HERE, "cache")):
+    """国土地理院の標高タイルから陸地マスク(True=陸)を作る。取得済みはキャッシュ。
+    ネットに繋がらない時は None を返し、海岸線なしで描画する。"""
+    lon0, lon1, lat0, lat1 = EXTENT
+    cache = os.path.join(cache_dir, f"land_z{z}.npy")
+    if os.path.exists(cache):
+        return np.load(cache)
+    import io
+    import ssl
+    import urllib.error
+    import urllib.request
+    from PIL import Image
+    x0, y1 = _tile_xy(lon0, lat0, z)
+    x1, y0 = _tile_xy(lon1, lat1, z)
+    tx0, tx1, ty0, ty1 = int(x0), int(x1), int(y0), int(y1)
+    W, H = (tx1 - tx0 + 1) * 256, (ty1 - ty0 + 1) * 256
+    land = np.zeros((H, W), bool)
+    ctx = ssl.create_default_context()
+    ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT  # Python3.13+ の証明書チェック厳格化への対処
+    print(f"海岸線用の地図タイルを取得中 ({(tx1 - tx0 + 1) * (ty1 - ty0 + 1)} 枚) ...")
+    for tx in range(tx0, tx1 + 1):
+        for ty in range(ty0, ty1 + 1):
+            try:
+                with urllib.request.urlopen(DEM_URL.format(z=z, x=tx, y=ty), timeout=30, context=ctx) as r:
+                    im = np.array(Image.open(io.BytesIO(r.read())).convert("RGB")).astype(np.int64)
+            except urllib.error.HTTPError as e:
+                if e.code == 404:  # タイル無し = 海
+                    continue
+                print("  取得失敗:", e)
+                return None
+            except Exception as e:
+                print("  取得失敗 (海岸線なしで続行):", e)
+                return None
+            v = im[..., 0] * 65536 + im[..., 1] * 256 + im[..., 2]
+            land[(ty - ty0) * 256:(ty - ty0 + 1) * 256, (tx - tx0) * 256:(tx - tx0 + 1) * 256] = v != 2 ** 23
+    nx = 1000
+    ny = int(nx * (lat1 - lat0) / ((lon1 - lon0) * math.cos(math.radians((lat0 + lat1) / 2))))
+    lons, lats = np.linspace(lon0, lon1, nx), np.linspace(lat1, lat0, ny)
+    px = np.clip(((lons + 180) / 360 * 2 ** z - tx0) * 256, 0, W - 1).astype(int)
+    py = np.clip(((1 - np.arcsinh(np.tan(np.radians(lats))) / math.pi) / 2 * 2 ** z - ty0) * 256, 0, H - 1).astype(int)
+    out = land[np.ix_(py, px)]
+    os.makedirs(cache_dir, exist_ok=True)
+    np.save(cache, out)
+    return out
+
+
+def interpolate(lon, lat, val, gx, gy, land, reach):
+    """海域の代表値から格子へ逆距離加重で補間。陸地と、観測点から reach 度より遠い所は NaN。"""
+    ok = ~np.isnan(val)
+    d2 = (gx[..., None] - lon[ok]) ** 2 + ((gy[..., None] - lat[ok]) * 1.25) ** 2 + 1e-4
+    w = 1 / d2 ** 1.5
+    z = (w * val[ok]).sum(-1) / w.sum(-1)
+    z[np.sqrt(d2.min(-1)) > reach] = np.nan
+    if land is not None:
+        z[land] = np.nan
+    return z
+
+
+class MapDrawer:
+    def __init__(self, names, args, values):
+        self.args = args
+        by_name = {v[0]: v for v in AREAS.values()}
+        self.names = [n for n in names if n in by_name]
+        self.lon = np.array([by_name[n][2] for n in self.names])
+        self.lat = np.array([by_name[n][1] for n in self.names])
+        lon0, lon1, lat0, lat1 = EXTENT
+        self.land = load_land()
+        ny, nx = (self.land.shape if self.land is not None else (600, 800))
+        self.gx, self.gy = np.meshgrid(np.linspace(lon0, lon1, nx), np.linspace(lat1, lat0, ny))
+        self.fig, self.ax = plt.subplots(figsize=(8, 9))
+        self.fig.subplots_adjust(left=.08, right=.92, top=.94, bottom=.06)
+        lo = math.floor(np.nanmin(values) / args.interval_deg) * args.interval_deg
+        hi = math.ceil(np.nanmax(values) / args.interval_deg) * args.interval_deg
+        self.levels = np.arange(lo - args.interval_deg, hi + args.interval_deg * 1.5, args.interval_deg)
+        self.cbar = None
+        self.arts = []
+
+    def draw(self, row, title):
+        ax = self.ax
+        for a in self.arts:
+            if hasattr(a, "remove"):
+                a.remove()
+            else:  # 古いmatplotlibのContourSet
+                for c in a.collections:
+                    c.remove()
+        self.arts = []
+        ax.set(xlim=EXTENT[:2], ylim=EXTENT[2:], aspect=1 / np.cos(np.radians(39.5)),
+               xlabel="経度", ylabel="緯度")
+        z = interpolate(self.lon, self.lat, row, self.gx, self.gy, self.land, self.args.reach)
+        z = np.ma.masked_invalid(z)
+        if self.land is not None:
+            self.arts.append(ax.imshow(np.where(self.land, 0.93, np.nan), extent=EXTENT, origin="upper",
+                                       cmap="gray", vmin=0, vmax=1, aspect="auto", zorder=0.5))
+        cf = ax.contourf(self.gx, self.gy, z, levels=self.levels, cmap="turbo", zorder=1)
+        cl = ax.contour(self.gx, self.gy, z, levels=self.levels, colors="k", linewidths=0.5, zorder=2)
+        ax.clabel(cl, fmt="%g", fontsize=8)  # ラベルは cl を消すと一緒に消える
+        self.arts += [cf, cl]
+        if self.land is not None:
+            self.arts.append(ax.contour(self.gx, self.gy, self.land.astype(float), levels=[.5],
+                                        colors="#444", linewidths=.8, zorder=3))
+        if not hasattr(self, "pts"):
+            self.pts = ax.scatter(self.lon, self.lat, s=14, c="w", edgecolors="k", zorder=4)
+            self.txt = [ax.text(x, y + .06, "", ha="center", fontsize=8, weight="bold", zorder=5,
+                                bbox=dict(fc="w", ec="none", alpha=.7, pad=.5))
+                        for x, y in zip(self.lon, self.lat)]
+            self.cbar = self.fig.colorbar(cf, ax=ax, shrink=.6, label="海面水温 ℃")
+        for t, v in zip(self.txt, row):
+            t.set_text("" if np.isnan(v) else f"{v:.1f}")
+        ax.set_title(title)
+
+
+def cmd_map(df, args):
+    setup_font()
+    day = pd.Timestamp(args.date)
+    if day not in df.index:
+        raise SystemExit(f"{args.date} のデータがありません ({df.index.min():%Y-%m-%d}〜{df.index.max():%Y-%m-%d})")
+    m = MapDrawer(df.columns, args, df.loc[day].values.astype(float))
+    m.draw(df.loc[day][m.names].values.astype(float), f"海面水温 {day:%Y-%m-%d}")
+    out = args.save or os.path.join(OUT, f"map_{day:%Y%m%d}.png")
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    m.fig.savefig(out, dpi=130)
+    print("保存:", out)
+    if not args.save_only:
+        plt.show()
+
+
 def cmd_player(df, args):
     from matplotlib.animation import FuncAnimation
-    from matplotlib.widgets import Slider  # noqa: F401  (GUI表示時のみ使用)
     setup_font()
-    if args.save:
-        matplotlib.use("Agg")
     start = pd.Timestamp(args.start)
     end = pd.Timestamp(args.end) if args.end else start + pd.offsets.YearEnd(0)
-    sub = df.loc[start:end]
+    sub = df.loc[start:end].iloc[::args.step]
     if sub.empty:
         raise SystemExit("指定期間にデータがありません")
-    sub = sub.iloc[::args.step]
-    by_name = {v[0]: v for v in AREAS.values()}
-    names = [c for c in sub.columns if c in by_name]
-    lon = np.array([by_name[c][2] for c in names])
-    lat = np.array([by_name[c][1] for c in names])
+    m = MapDrawer(df.columns, args, sub.values.astype(float))
 
-    fig, ax = plt.subplots(figsize=(8, 8))
-    ax.set(xlim=(138.8, 143.0), ylim=(36.8, 42.2), aspect=1 / np.cos(np.radians(39.5)),
-           xlabel="経度", ylabel="緯度")
-    ax.grid(alpha=.3)
-    sc = ax.scatter(lon, lat, s=900, c=np.zeros(len(names)), cmap="turbo", vmin=TMIN, vmax=TMAX,
-                    edgecolors="k")
-    fig.colorbar(sc, ax=ax, shrink=.7, label="海面水温 ℃")
-    labels = [ax.text(x, y - .17, n, ha="center", fontsize=7) for n, x, y in zip(names, lon, lat)]
-    vals = [ax.text(x, y, "", ha="center", va="center", fontsize=7, weight="bold")
-            for x, y in zip(lon, lat)]
-    title = ax.set_title("")
-    del labels
+    def frame(i):
+        m.draw(sub.iloc[i][m.names].values.astype(float), f"海面水温 {sub.index[i]:%Y-%m-%d}")
 
-    def draw(i):
-        row = sub.iloc[i][names].values.astype(float)
-        sc.set_array(row)
-        for t, v in zip(vals, row):
-            t.set_text("" if np.isnan(v) else f"{v:.1f}")
-        title.set_text(f"海面水温 {sub.index[i]:%Y-%m-%d}")
-        return sc, title, *vals
-
-    ani = FuncAnimation(fig, draw, frames=len(sub), interval=args.interval, blit=False)
+    ani = FuncAnimation(m.fig, frame, frames=len(sub), interval=args.interval, repeat=True)
     if args.save:
         os.makedirs(os.path.dirname(os.path.abspath(args.save)), exist_ok=True)
         ani.save(args.save, writer="pillow", fps=max(1, 1000 // args.interval))
@@ -224,7 +335,15 @@ def main():
     sp.add_parser("summary")
     pp = sp.add_parser("plot")
     pp.add_argument("--area", help="海域名 (例: 宮城県沿岸)。省略で全海域")
-    pl = sp.add_parser("player")
+    mp = sp.add_parser("map", help="ある日の海水温を地図+等温線で表示")
+    mp.add_argument("--date", default="2025-08-15")
+    mp.add_argument("--save", help="PNG保存先")
+    mp.add_argument("--save-only", action="store_true", help="画面表示せず保存だけ")
+    mp.add_argument("--reach", type=float, default=1.5, help="観測点からこの度数以上遠い所は塗らない")
+    mp.add_argument("--interval-deg", type=float, default=0.5, help="等温線の間隔(℃)")
+    pl = sp.add_parser("player", help="期間を再生 (地図+等温線)")
+    pl.add_argument("--reach", type=float, default=1.5)
+    pl.add_argument("--interval-deg", type=float, default=1.0, help="等温線の間隔(℃)")
     pl.add_argument("--start", default="2020-01-01")
     pl.add_argument("--end")
     pl.add_argument("--step", type=int, default=1, help="何日ごとに再生するか")
@@ -232,7 +351,7 @@ def main():
     pl.add_argument("--save", help="GIF保存先 (指定時は画面表示しない)")
     args = p.parse_args()
     df = load(args.dir)
-    {"summary": cmd_summary, "plot": cmd_plot, "player": cmd_player}[args.cmd](df, args)
+    {"summary": cmd_summary, "plot": cmd_plot, "map": cmd_map, "player": cmd_player}[args.cmd](df, args)
 
 
 if __name__ == "__main__":
