@@ -325,7 +325,14 @@ class MapDrawer:
         lon0, lon1, lat0, lat1 = EXTENT
         self.land = load_land()
         ny, nx = (self.land.shape if self.land is not None else (600, 800))
-        self.gx, self.gy = np.meshgrid(np.linspace(lon0, lon1, nx), np.linspace(lat1, lat0, ny))
+        gx, gy = np.meshgrid(np.linspace(lon0, lon1, nx), np.linspace(lat1, lat0, ny))
+        # 等温線は粗い格子(K倍間引き)で計算して軽くする。陸地は最後に本来の精度で上から被せるので海岸線は粗くならない。
+        K = 4
+        cy, cx = ny // K, nx // K
+        self.gx = gx[:cy * K, :cx * K].reshape(cy, K, cx, K).mean(axis=(1, 3))
+        self.gy = gy[:cy * K, :cx * K].reshape(cy, K, cx, K).mean(axis=(1, 3))
+        self.cland = (self.land[:cy * K, :cx * K].reshape(cy, K, cx, K).all(axis=(1, 3))
+                      if self.land is not None else None)  # ブロックが全部陸地の所だけ陸扱い
         self.fig, self.ax = plt.subplots(figsize=(8, 9))
         self.fig.subplots_adjust(left=.08, right=.92, top=.94, bottom=.06)
         lo = math.floor(np.nanmin(values) / args.interval_deg) * args.interval_deg
@@ -339,45 +346,62 @@ class MapDrawer:
         self.st_lat = np.array([STATIONS[n][0] for n in self.st_names])
         self.st_lon = np.array([STATIONS[n][1] for n in self.st_names])
         self.cbar = None
-        self.arts = []
+        self.sst_arts, self.arts = [], []
+        self._sst_key = None
+        self._static()
 
-    def _clear(self):
-        for a in self.arts:
+    def _static(self):
+        """変わらない部分(陸地・海岸線)を1回だけ描く。"""
+        ax = self.ax
+        if self.land is not None:
+            ax.imshow(np.where(self.land, 0.93, np.nan), extent=EXTENT, origin="upper",
+                      cmap="gray", vmin=0, vmax=1, aspect="auto", zorder=2.5)
+            lon0, lon1, lat0, lat1 = EXTENT
+            ny, nx = self.land.shape
+            ax.contour(np.linspace(lon0, lon1, nx), np.linspace(lat1, lat0, ny), self.land.astype(float),
+                       levels=[.5], colors="#444", linewidths=.8, zorder=3)
+        # imshow が aspect を 'auto' に変えてしまうので、その後に固定する (全画面でも縮尺が崩れない)
+        ax.set(xlim=EXTENT[:2], ylim=EXTENT[2:], xlabel="経度", ylabel="緯度")
+        ax.set_aspect(1 / np.cos(np.radians(39.5)), adjustable="box")
+
+    @staticmethod
+    def _remove(arts):
+        for a in arts:
             if hasattr(a, "remove"):
                 a.remove()
             else:  # 古いmatplotlibのContourSet
                 for c in a.collections:
                     c.remove()
-        self.arts = []
+        arts.clear()
 
-    def draw(self, row, title, obs=None):
-        """row: 海域ごとの海面水温。obs: 官署の観測 {'temp','wind','dir','rh','vis': 官署順の配列} (省略可)"""
+    def draw(self, row, title, obs=None, key=None):
+        """row: 海域ごとの海面水温。obs: 官署の観測 {'temp','wind','dir','rh','vis': 官署順の配列} (省略可)
+        key: 海面水温が同じ(=同じ日)なら等温線を再計算せず使い回すための識別子"""
         ax = self.ax
-        self._clear()
-        ax.set(xlim=EXTENT[:2], ylim=EXTENT[2:], aspect=1 / np.cos(np.radians(39.5)),
-               xlabel="経度", ylabel="緯度")
-        z = interpolate(self.lon, self.lat, row, self.gx, self.gy, self.land, self.args.reach)
-        z = np.ma.masked_invalid(z)
-        if self.land is not None:
-            self.arts.append(ax.imshow(np.where(self.land, 0.93, np.nan), extent=EXTENT, origin="upper",
-                                       cmap="gray", vmin=0, vmax=1, aspect="auto", zorder=0.5))
-        cf = ax.contourf(self.gx, self.gy, z, levels=self.levels, cmap=self.cmap, norm=self.norm, zorder=1)
-        cl = ax.contour(self.gx, self.gy, z, levels=self.levels, colors="k", linewidths=0.5, zorder=2)
-        ax.clabel(cl, fmt="%g", fontsize=8)  # ラベルは cl を消すと一緒に消える
-        self.arts += [cf, cl]
-        if self.land is not None:
-            self.arts.append(ax.contour(self.gx, self.gy, self.land.astype(float), levels=[.5],
-                                        colors="#444", linewidths=.8, zorder=3))
-        if not hasattr(self, "pts"):
-            self.pts = ax.scatter(self.lon, self.lat, s=14, c="w", edgecolors="k", zorder=4)
-            self.txt = [ax.text(x, y + .06, "", ha="center", fontsize=8, weight="bold", zorder=5,
-                                bbox=dict(fc="w", ec="none", alpha=.7, pad=.5))
-                        for x, y in zip(self.lon, self.lat)]
-            sm = matplotlib.cm.ScalarMappable(norm=self.norm, cmap=self.cmap)
-            self.cbar = self.fig.colorbar(sm, ax=ax, shrink=.6,
-                                          label="海面水温(丸) / 気温(四角) ℃" if obs else "海面水温 ℃")
-        for t, v in zip(self.txt, row):
-            t.set_text("" if np.isnan(v) else f"{v:.1f}")
+        self._remove(self.arts)
+        if key is None or key != self._sst_key:
+            self._remove(self.sst_arts)
+            z = interpolate(self.lon, self.lat, row, self.gx, self.gy, self.cland, self.args.reach)
+            z = np.ma.masked_invalid(z)
+            cf = ax.contourf(self.gx, self.gy, z, levels=self.levels, cmap=self.cmap, norm=self.norm, zorder=1)
+            cl = ax.contour(self.gx, self.gy, z, levels=self.levels, colors="k", linewidths=0.5, zorder=2)
+            ax.clabel(cl, fmt="%g", fontsize=8)  # ラベルは cl を消すと一緒に消える
+            self.sst_arts += [cf, cl]
+            self._sst_key = key
+            if not hasattr(self, "pts"):
+                self.pts = ax.scatter(self.lon, self.lat, s=14, c="w", edgecolors="k", zorder=4)
+                self.txt = [ax.text(x, y + .06, "", ha="center", fontsize=8, weight="bold", zorder=5,
+                                    bbox=dict(fc="w", ec="none", alpha=.7, pad=.5))
+                            for x, y in zip(self.lon, self.lat)]
+                sm = matplotlib.cm.ScalarMappable(norm=self.norm, cmap=self.cmap)
+                self.cbar = self.fig.colorbar(sm, ax=ax, shrink=.6,
+                                              label="海面水温(丸) / 気温(四角) ℃" if obs else "海面水温 ℃")
+                if obs:
+                    ax.text(.01, .01, "□気温(色)  →風の行き先  小さい○静穏  大きい円=視程(半径km)  紫=視程1km未満",
+                            transform=ax.transAxes, fontsize=7, zorder=9,
+                            bbox=dict(fc="w", ec="none", alpha=.75, pad=1.5))
+            for t, v in zip(self.txt, row):
+                t.set_text("" if np.isnan(v) else f"{v:.1f}")
         if obs is not None:
             self._draw_obs(obs)
         ax.set_title(title)
@@ -399,13 +423,13 @@ class MapDrawer:
                                            angles="uv", scale=15, scale_units="inches", width=.006,
                                            color="k", zorder=7))
             if calm.any():
-                self.arts.append(ax.scatter(lon[calm], lat[calm], s=260, facecolors="none", edgecolors="k",
-                                            zorder=7))
+                self.arts.append(ax.scatter(lon[calm], lat[calm], s=40, facecolors="none", edgecolors="k",
+                                            linewidths=1.2, zorder=7))
         if f["vis"]:  # 視程 = 観測点を中心とした半径(km)の円 (縦横とも実距離)
             for i in np.where(~np.isnan(vis))[0]:
                 r = vis[i]
                 self.arts.append(matplotlib.patches.Ellipse(
-                    (lon[i], lat[i]), 2 * r / (111.0 * math.cos(math.radians(lat[i]))), 2 * r / 111.0,
+                    (lon[i], lat[i]), 2 * r / (111.0 * math.cos(math.radians(39.5))), 2 * r / 111.0,
                     fc=(1, 0, 1, .12) if fog[i] else (.2, .2, .2, .08),
                     ec="m" if fog[i] else "#555", lw=1.2, zorder=5))
                 ax.add_patch(self.arts[-1])
@@ -474,6 +498,9 @@ class Viewer:
             self.times = df.dropna(how="all").index
             vals = df.values.astype(float)
         self.m = MapDrawer(df.columns, args, vals)
+        if obs:  # 表示する時刻ぶんだけ、官署順のnumpy配列にしておく
+            self.arr = {k: obs[k].reindex(index=self.times, columns=self.m.st_names).values.astype(float)
+                        for k in obs}
         self.fig = self.m.fig
         self.fig.set_size_inches(8.4, 10.2)
         self.fig.subplots_adjust(bottom=0.27)
@@ -533,8 +560,9 @@ class Viewer:
         row = (self.sst.loc[day] if day in self.sst.index else pd.Series(np.nan, index=self.sst.columns))
         o = None
         if self.obs:
-            o = {k: self.obs[k].reindex([ts], columns=self.m.st_names).iloc[0].values for k in self.obs}
-        self.m.draw(row[self.m.names].values.astype(float), "海面水温(日別)" + (" + 官署(時別) " if o else " ") + text, o)
+            o = {k: a[self.pos] for k, a in self.arr.items()}
+        self.m.draw(row[self.m.names].values.astype(float), "海面水温(日別)" + (" + 官署(時別) " if o else " ") + text,
+                    o, key=day)
         self._lock = True
         self.slider.set_val(self.pos)
         self.slider.valtext.set_text(f"{ts:%Y-%m-%d %H:%M}")
