@@ -8,6 +8,8 @@
     python sst_tool.py plot                    # 図を out/ に保存 (推移・偏差・年×日ヒートマップ・年平均トレンド)
     python sst_tool.py plot --area 宮城県沿岸   # 1海域だけ
     python sst_tool.py map --date 2025-08-15   # その日の海水温を東北の地図+等温線で表示(out/にPNG保存)
+    python sst_tool.py viewer                  # 夏季(6/1〜8/31)のみ。年・月・日をボタン/スライダー/キーで操作
+    python sst_tool.py --summer summary        # 夏季だけで集計 (plot / map / player にも付けられる)
     python sst_tool.py player --start 2025-06-01 --end 2025-09-30   # 期間を再生 (画面表示)
     python sst_tool.py player --start 2025-06-01 --end 2025-09-30 --step 3 --save out/player.gif
 必要: pip install numpy pandas matplotlib (--save gif は pillow)
@@ -71,6 +73,11 @@ def load(data_dir=HERE):
     return pd.DataFrame(cols)
 
 
+def summer(df):
+    """毎年の 6/1〜8/31 だけを取り出す。"""
+    return df[df.index.month.isin([6, 7, 8])]
+
+
 def climatology(df):
     """平年値(日別)。うるう日を含めた月日ごとの平均を7日移動(循環)で平滑化。"""
     base = df[(df.index.year >= BASE_YEARS[0]) & (df.index.year <= BASE_YEARS[1])]
@@ -86,12 +93,11 @@ def anomaly(df):
     return df - clim.reindex(key).values
 
 
-def annual_trend(df):
-    """年平均(欠測が多い年を除く)と線形トレンド(℃/10年)。今年は途中までなので除外。"""
-    last_full = df.index.max().year - (0 if df.index.max().strftime("%m-%d") >= "12-25" else 1)
-    yr = df[df.index.year <= last_full]
-    cnt = yr.groupby(yr.index.year).count()
-    mean = yr.groupby(yr.index.year).mean().where(cnt >= 330)
+def annual_trend(df, expected=365):
+    """年平均(欠測が多い年・途中までの年を除く)と線形トレンド(℃/10年)。
+    expected: 1年に期待する日数 (夏季だけなら92)。"""
+    cnt = df.groupby(df.index.year).count()
+    mean = df.groupby(df.index.year).mean().where(cnt >= 0.9 * expected)
     rows = {}
     for c in mean:
         m = mean[c].dropna()
@@ -103,8 +109,8 @@ def annual_trend(df):
     return mean, summ.sort_values("トレンド_10年あたり", ascending=False)
 
 
-def cmd_summary(df, _):
-    mean, summ = annual_trend(df)
+def cmd_summary(df, args):
+    mean, summ = annual_trend(df, 92 if args.summer else 365)
     pd.set_option("display.width", 200, "display.float_format", "{:.2f}".format)
     summ = summ.astype({"第1年": int, "最終年": int})
     print(f"期間: {df.index.min():%Y-%m-%d} 〜 {df.index.max():%Y-%m-%d}  海域数: {df.shape[1]}")
@@ -119,8 +125,9 @@ def cmd_plot(df, args):
     setup_font()
     os.makedirs(OUT, exist_ok=True)
     areas = [args.area] if args.area else list(df.columns)
-    mean, _ = annual_trend(df)
+    mean, _ = annual_trend(df, 92 if args.summer else 365)
     anom = anomaly(df)
+    label = "夏季(6〜8月)" if args.summer else "年"
     cmap = plt.get_cmap("tab20")
 
     # 1) 年平均の推移 + 回帰直線
@@ -128,19 +135,23 @@ def cmd_plot(df, args):
     for i, c in enumerate(areas):
         m = mean[c].dropna()
         ax.plot(m.index, m.values, marker="o", ms=3, lw=1.2, color=cmap(i), label=c)
-    ax.set(title="年平均海面水温の推移", xlabel="年", ylabel="℃")
+    ax.set(title=f"{label}平均海面水温の推移", xlabel="年", ylabel="℃")
     ax.grid(alpha=.3)
     ax.legend(ncol=3, fontsize=8)
     fig.tight_layout()
     fig.savefig(os.path.join(OUT, "annual_mean.png"), dpi=130)
     plt.close(fig)
 
-    # 2) 平年偏差 (1年移動平均) : 温暖化・ここ数年の高水温が見える
+    # 2) 平年偏差 : 温暖化・ここ数年の高水温が見える
     fig, ax = plt.subplots(figsize=(11, 6))
     for i, c in enumerate(areas):
-        ax.plot(anom[c].rolling(365, min_periods=300).mean(), lw=1.2, color=cmap(i), label=c)
+        if args.summer:  # 夏季だけを繋ぐと移動平均は意味がないので年ごとの夏季平均
+            a = anom[c].groupby(anom.index.year).mean()
+            ax.plot(a.index, a.values, marker="o", ms=3, lw=1.2, color=cmap(i), label=c)
+        else:
+            ax.plot(anom[c].rolling(365, min_periods=300).mean(), lw=1.2, color=cmap(i), label=c)
     ax.axhline(0, color="k", lw=.8)
-    ax.set(title=f"平年偏差(1年移動平均, 平年={BASE_YEARS[0]}-{BASE_YEARS[1]})", ylabel="℃")
+    ax.set(title=f"平年偏差({'夏季平均' if args.summer else '1年移動平均'}, 平年={BASE_YEARS[0]}-{BASE_YEARS[1]})", ylabel="℃")
     ax.grid(alpha=.3)
     ax.legend(ncol=3, fontsize=8)
     fig.tight_layout()
@@ -153,7 +164,7 @@ def cmd_plot(df, args):
         piv = a.groupby([a.index.year, a.index.dayofyear]).mean().unstack()
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 9), gridspec_kw=dict(height_ratios=[3, 2]))
         im = ax1.imshow(piv.values, aspect="auto", cmap="RdBu_r", vmin=-4, vmax=4,
-                        extent=[1, 366, piv.index.max() + .5, piv.index.min() - .5])
+                        extent=[piv.columns.min() - .5, piv.columns.max() + .5, piv.index.max() + .5, piv.index.min() - .5])
         fig.colorbar(im, ax=ax1, label="平年偏差 ℃")
         ax1.set(title=f"{c}: 平年偏差 (年×通日)", xlabel="通日", ylabel="年")
         clim = climatology(df)[c]
@@ -161,7 +172,8 @@ def cmd_plot(df, args):
         for y in sorted(set(recent.index.year)):
             r = recent[recent.index.year == y]
             ax2.plot(r.index.dayofyear, r.values, label=str(y))
-        ax2.plot(np.arange(1, len(clim) + 1), clim.values, "k--", lw=1, label="平年")
+        ax2.plot([pd.Timestamp(f"2001-{k}" if k != "02-29" else "2000-02-29").dayofyear for k in clim.index],
+                 clim.values, "k--", lw=1, label="平年")
         ax2.set(title="直近の水温と平年", xlabel="通日", ylabel="℃")
         ax2.grid(alpha=.3)
         ax2.legend(fontsize=8)
@@ -328,9 +340,99 @@ def cmd_player(df, args):
         plt.show()
 
 
+class Viewer:
+    """年・月・日を Figure 上のボタン / スライダー / キーで操作する地図ビューア。
+    データは日別なので「時間」の操作はありません。"""
+
+    def __init__(self, df, args):
+        self.df = df.dropna(how="all")
+        self.avail = self.df.index
+        self.m = MapDrawer(df.columns, args, self.df.values.astype(float))
+        self.fig = self.m.fig
+        self.fig.subplots_adjust(bottom=0.22)
+        self.timer = None
+        self._lock = False
+        from matplotlib.widgets import Button, Slider
+        specs = [("年 −", lambda: self.move_year(-1)), ("年 +", lambda: self.move_year(1)),
+                 ("月 −", lambda: self.move_month(-1)), ("月 +", lambda: self.move_month(1)),
+                 ("日 −", lambda: self.move_day(-1)), ("日 +", lambda: self.move_day(1)),
+                 ("再生/停止", self.toggle_play)]
+        self.buttons = []
+        w, gap, x0 = 0.11, 0.015, 0.08
+        for i, (text, fn) in enumerate(specs):
+            b = Button(self.fig.add_axes([x0 + i * (w + gap), 0.095, w, 0.045]), text)
+            b.on_clicked(lambda _e, fn=fn: fn())
+            self.buttons.append(b)
+        self.slider = Slider(self.fig.add_axes([0.08, 0.035, 0.74, 0.03]), "", 0, len(self.avail) - 1,
+                             valinit=len(self.avail) - 1, valstep=1)
+        self.slider.on_changed(lambda v: None if self._lock else self.show(int(v)))
+        self.fig.canvas.mpl_connect("key_press_event", self.on_key)
+        self.pos = len(self.avail) - 1
+        self.show(self.pos)
+
+    def show(self, pos):
+        self.pos = int(min(max(pos, 0), len(self.avail) - 1))
+        d = self.avail[self.pos]
+        self.m.draw(self.df.iloc[self.pos][self.m.names].values.astype(float), f"海面水温 {d:%Y年%m月%d日}")
+        self._lock = True
+        self.slider.set_val(self.pos)
+        self.slider.valtext.set_text(f"{d:%Y-%m-%d}")
+        self._lock = False
+        self.fig.canvas.draw_idle()
+
+    def nearest(self, target):
+        i = int(self.avail.searchsorted(target))
+        cand = [j for j in (i - 1, i) if 0 <= j < len(self.avail)]
+        return min(cand, key=lambda j: abs(self.avail[j] - target))
+
+    def move_day(self, n):
+        self.show(self.pos + n)
+
+    def move_month(self, n):
+        self.show(self.nearest(self.avail[self.pos] + pd.DateOffset(months=n)))
+
+    def move_year(self, n):
+        self.show(self.nearest(self.avail[self.pos] + pd.DateOffset(years=n)))
+
+    def toggle_play(self):
+        if self.timer is None:
+            self.timer = self.fig.canvas.new_timer(interval=150)
+            self.timer.add_callback(self.tick)
+            self.timer.start()
+        else:
+            self.timer.stop()
+            self.timer = None
+
+    def tick(self):
+        d = self.avail[self.pos]
+        nxt = self.pos + 1
+        if nxt >= len(self.avail) or self.avail[nxt].year != d.year:  # その年の夏の終わり -> 同じ年の頭に戻る
+            nxt = self.nearest(pd.Timestamp(d.year, 6, 1))
+        self.show(nxt)
+
+    def on_key(self, e):
+        {"right": lambda: self.move_day(1), "left": lambda: self.move_day(-1),
+         "up": lambda: self.move_year(1), "down": lambda: self.move_year(-1),
+         "pageup": lambda: self.move_month(1), "pagedown": lambda: self.move_month(-1),
+         " ": self.toggle_play}.get(e.key, lambda: None)()
+
+
+def cmd_viewer(df, args):
+    setup_font()
+    for k in ("keymap.back", "keymap.forward", "keymap.pan", "keymap.zoom", "keymap.save"):
+        plt.rcParams[k] = []  # 矢印キー等をこのビューアの操作に使うため
+    if not args.summer and not args.all_season:
+        df = summer(df)
+    v = Viewer(df, args)
+    if args.date:
+        v.show(v.nearest(pd.Timestamp(args.date)))
+    plt.show()
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--dir", default=HERE, help="*.txt のあるフォルダ")
+    p.add_argument("--summer", action="store_true", help="毎年の6/1〜8/31だけを使う (全コマンド共通。viewerは既定で夏季のみ)")
     sp = p.add_subparsers(dest="cmd", required=True)
     sp.add_parser("summary")
     pp = sp.add_parser("plot")
@@ -341,6 +443,11 @@ def main():
     mp.add_argument("--save-only", action="store_true", help="画面表示せず保存だけ")
     mp.add_argument("--reach", type=float, default=1.5, help="観測点からこの度数以上遠い所は塗らない")
     mp.add_argument("--interval-deg", type=float, default=0.5, help="等温線の間隔(℃)")
+    vw = sp.add_parser("viewer", help="年・月・日をFigure上のボタンで操作 (既定は夏季のみ)")
+    vw.add_argument("--date", help="最初に表示する日 (省略で最新)")
+    vw.add_argument("--all-season", action="store_true", help="夏季に限らず全期間を対象にする")
+    vw.add_argument("--reach", type=float, default=1.5)
+    vw.add_argument("--interval-deg", type=float, default=1.0, help="等温線の間隔(℃)")
     pl = sp.add_parser("player", help="期間を再生 (地図+等温線)")
     pl.add_argument("--reach", type=float, default=1.5)
     pl.add_argument("--interval-deg", type=float, default=1.0, help="等温線の間隔(℃)")
@@ -351,7 +458,9 @@ def main():
     pl.add_argument("--save", help="GIF保存先 (指定時は画面表示しない)")
     args = p.parse_args()
     df = load(args.dir)
-    {"summary": cmd_summary, "plot": cmd_plot, "map": cmd_map, "player": cmd_player}[args.cmd](df, args)
+    if args.summer:
+        df = summer(df)
+    {"viewer": cmd_viewer, "summary": cmd_summary, "plot": cmd_plot, "map": cmd_map, "player": cmd_player}[args.cmd](df, args)
 
 
 if __name__ == "__main__":
