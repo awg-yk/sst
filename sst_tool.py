@@ -20,6 +20,8 @@ import math
 import os
 
 import matplotlib
+import matplotlib.cm
+import matplotlib.colors
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -238,6 +240,68 @@ def load_land(z=8, cache_dir=os.path.join(HERE, "cache")):
     return out
 
 
+# 東北の官署 (概算の緯度経度。位置がずれていたら直してください)
+STATIONS = {
+    "むつ": (41.28, 141.22), "青森": (40.82, 140.77), "深浦": (40.65, 139.93), "八戸": (40.53, 141.52),
+    "秋田": (39.72, 140.10), "盛岡": (39.70, 141.17), "宮古": (39.65, 141.97), "大船渡": (39.07, 141.72),
+    "石巻": (38.43, 141.30), "仙台": (38.26, 140.90), "酒田": (38.91, 139.84), "新庄": (38.76, 140.31),
+    "山形": (38.25, 140.35), "福島": (37.75, 140.47), "若松": (37.49, 139.92), "白河": (37.13, 140.22),
+    "小名浜": (36.95, 140.90),
+}
+COMPASS = ["北", "北北東", "北東", "東北東", "東", "東南東", "南東", "南南東",
+           "南", "南南西", "南西", "西南西", "西", "西北西", "北西", "北北西"]
+WIND_DEG = {n: i * 22.5 for i, n in enumerate(COMPASS)}
+OBS_DIR = os.path.join(HERE, "東北地方官署アメダスデータ")
+# 気象庁「時別値」CSV: 地点ごとに14列 = 気温(値,品質,均質) 風速(値,品質) 風向(値,品質,均質) 湿度(値,品質,均質) 視程(値,品質,均質)
+OBS_COLS = {"temp": 0, "wind": 3, "dir": 5, "rh": 8, "vis": 11}
+
+
+def _read_rows(path):
+    import csv
+    for enc in ("utf-8-sig", "cp932"):
+        try:
+            with open(path, encoding=enc, newline="") as f:
+                return list(csv.reader(f))
+        except UnicodeDecodeError:
+            continue
+    raise SystemExit("文字コードが判別できません: " + path)
+
+
+def load_obs(obs_dir=OBS_DIR):
+    """官署の時別値CSV(年ごと)を全部読み、{'temp','wind','dir','rh','vis': 時刻×地点のDataFrame} を返す。
+    風向は度(北=0,東=90)。静穏は風向NaNかつ風速が数値。無ければ None。"""
+    files = sorted(glob.glob(os.path.join(obs_dir, "*.csv")))
+    if not files:
+        return None
+    parts = {k: [] for k in OBS_COLS}
+    for path in files:
+        rows = _read_rows(path)
+        h = next((i for i, r in enumerate(rows) if r and r[0].startswith("年月日時")), None)
+        if h is None:
+            print("  読み飛ばし(形式が違う):", os.path.basename(path))
+            continue
+        names = rows[h - 1][1::14]
+        data = [r for r in rows[h + 3:] if r and r[0]]
+        t = pd.to_datetime([r[0] for r in data], format="%Y/%m/%d %H:%M:%S", errors="coerce")
+        keep = ~t.isna()
+        data = [r for r, k in zip(data, keep) if k]
+        t = t[keep]
+        for key, off in OBS_COLS.items():
+            cols = {}
+            for si, name in enumerate(names):
+                if name not in STATIONS:
+                    continue
+                vals = [r[1 + 14 * si + off] if len(r) > 1 + 14 * si + off else "" for r in data]
+                if key == "dir":
+                    cols[name] = [WIND_DEG.get(v, np.nan) for v in vals]
+                else:
+                    cols[name] = pd.to_numeric(pd.Series(vals), errors="coerce").values
+            parts[key].append(pd.DataFrame(cols, index=t))
+    obs = {k: pd.concat(v).sort_index() for k, v in parts.items() if v}
+    obs = {k: v[~v.index.duplicated()] for k, v in obs.items()}
+    return obs
+
+
 def interpolate(lon, lat, val, gx, gy, land, reach):
     """海域の代表値から格子へ逆距離加重で補間。陸地と、観測点から reach 度より遠い所は NaN。"""
     ok = ~np.isnan(val)
@@ -266,11 +330,17 @@ class MapDrawer:
         lo = math.floor(np.nanmin(values) / args.interval_deg) * args.interval_deg
         hi = math.ceil(np.nanmax(values) / args.interval_deg) * args.interval_deg
         self.levels = np.arange(lo - args.interval_deg, hi + args.interval_deg * 1.5, args.interval_deg)
+        self.cmap = plt.get_cmap("turbo").copy()
+        self.cmap.set_bad("w")
+        self.norm = matplotlib.colors.BoundaryNorm(self.levels, self.cmap.N)
+        self.flags = {"temp": True, "wind": True, "rh": True, "vis": True}  # 官署の表示項目
+        self.st_names = [n for n in STATIONS]
+        self.st_lat = np.array([STATIONS[n][0] for n in self.st_names])
+        self.st_lon = np.array([STATIONS[n][1] for n in self.st_names])
         self.cbar = None
         self.arts = []
 
-    def draw(self, row, title):
-        ax = self.ax
+    def _clear(self):
         for a in self.arts:
             if hasattr(a, "remove"):
                 a.remove()
@@ -278,6 +348,11 @@ class MapDrawer:
                 for c in a.collections:
                     c.remove()
         self.arts = []
+
+    def draw(self, row, title, obs=None):
+        """row: 海域ごとの海面水温。obs: 官署の観測 {'temp','wind','dir','rh','vis': 官署順の配列} (省略可)"""
+        ax = self.ax
+        self._clear()
         ax.set(xlim=EXTENT[:2], ylim=EXTENT[2:], aspect=1 / np.cos(np.radians(39.5)),
                xlabel="経度", ylabel="緯度")
         z = interpolate(self.lon, self.lat, row, self.gx, self.gy, self.land, self.args.reach)
@@ -285,7 +360,7 @@ class MapDrawer:
         if self.land is not None:
             self.arts.append(ax.imshow(np.where(self.land, 0.93, np.nan), extent=EXTENT, origin="upper",
                                        cmap="gray", vmin=0, vmax=1, aspect="auto", zorder=0.5))
-        cf = ax.contourf(self.gx, self.gy, z, levels=self.levels, cmap="turbo", zorder=1)
+        cf = ax.contourf(self.gx, self.gy, z, levels=self.levels, cmap=self.cmap, norm=self.norm, zorder=1)
         cl = ax.contour(self.gx, self.gy, z, levels=self.levels, colors="k", linewidths=0.5, zorder=2)
         ax.clabel(cl, fmt="%g", fontsize=8)  # ラベルは cl を消すと一緒に消える
         self.arts += [cf, cl]
@@ -297,10 +372,45 @@ class MapDrawer:
             self.txt = [ax.text(x, y + .06, "", ha="center", fontsize=8, weight="bold", zorder=5,
                                 bbox=dict(fc="w", ec="none", alpha=.7, pad=.5))
                         for x, y in zip(self.lon, self.lat)]
-            self.cbar = self.fig.colorbar(cf, ax=ax, shrink=.6, label="海面水温 ℃")
+            sm = matplotlib.cm.ScalarMappable(norm=self.norm, cmap=self.cmap)
+            self.cbar = self.fig.colorbar(sm, ax=ax, shrink=.6,
+                                          label="海面水温(丸) / 気温(四角) ℃" if obs else "海面水温 ℃")
         for t, v in zip(self.txt, row):
             t.set_text("" if np.isnan(v) else f"{v:.1f}")
+        if obs is not None:
+            self._draw_obs(obs)
         ax.set_title(title)
+
+    def _draw_obs(self, obs):
+        ax, f = self.ax, self.flags
+        lon, lat = self.st_lon, self.st_lat
+        t, w, d, rh, vis = (np.asarray(obs[k], float) for k in ("temp", "wind", "dir", "rh", "vis"))
+        fog = f["vis"] & (vis < 1.0)  # 視程1km未満 = 霧の目安
+        self.arts.append(ax.scatter(lon, lat, s=90, marker="s", c=np.ma.masked_invalid(t) if f["temp"] else "w",
+                                    cmap=self.cmap, norm=self.norm, edgecolors=np.where(fog, "m", "k"),
+                                    linewidths=np.where(fog, 2.5, 0.8), zorder=6))
+        if f["wind"]:
+            ok = ~np.isnan(w) & ~np.isnan(d)
+            calm = ~np.isnan(w) & np.isnan(d)
+            if ok.any():
+                rad = np.radians(d[ok])  # 風向は風の吹いてくる向き -> 矢印は吹いていく向き
+                self.arts.append(ax.quiver(lon[ok], lat[ok], -w[ok] * np.sin(rad), -w[ok] * np.cos(rad),
+                                           angles="uv", scale=15, scale_units="inches", width=.006,
+                                           color="k", zorder=7))
+            if calm.any():
+                self.arts.append(ax.scatter(lon[calm], lat[calm], s=260, facecolors="none", edgecolors="k",
+                                            zorder=7))
+        for i, name in enumerate(self.st_names):
+            parts = []
+            if f["temp"] and not np.isnan(t[i]):
+                parts.append(f"{t[i]:.1f}℃")
+            if f["rh"] and not np.isnan(rh[i]):
+                parts.append(f"{rh[i]:.0f}%")
+            if f["vis"] and not np.isnan(vis[i]):
+                parts.append(f"{vis[i]:.1f}km")
+            self.arts.append(ax.text(lon[i] + .07, lat[i] - .08, name + ("\n" + " ".join(parts) if parts else ""),
+                                     fontsize=7, va="top", zorder=8, color="#c00000" if fog[i] else "k",
+                                     bbox=dict(fc="w", ec="none", alpha=.65, pad=.4)))
 
 
 def cmd_map(df, args):
@@ -341,58 +451,108 @@ def cmd_player(df, args):
 
 
 class Viewer:
-    """年・月・日を Figure 上のボタン / スライダー / キーで操作する地図ビューア。
-    データは日別なので「時間」の操作はありません。"""
+    """年・月・日・時を Figure 上のボタン / スライダー / キーで操作する地図ビューア。
+    海面水温は日別、官署(気温・風・湿度・視程)は時別。obs が無ければ日別の海面水温だけ。"""
 
-    def __init__(self, df, args):
-        self.df = df.dropna(how="all")
-        self.avail = self.df.index
-        self.m = MapDrawer(df.columns, args, self.df.values.astype(float))
+    def __init__(self, df, args, obs=None):
+        self.sst = df
+        self.obs = obs
+        if obs:
+            has = pd.concat([obs[k].notna().any(axis=1) for k in ("temp", "wind", "rh", "vis")], axis=1).any(axis=1)
+            self.times = obs["temp"].index[has.reindex(obs["temp"].index).fillna(False).values]
+            vals = np.concatenate([df.values.ravel(), obs["temp"].values.ravel()]).astype(float)
+        else:
+            self.times = df.dropna(how="all").index
+            vals = df.values.astype(float)
+        self.m = MapDrawer(df.columns, args, vals)
         self.fig = self.m.fig
-        self.fig.subplots_adjust(bottom=0.22)
+        self.fig.set_size_inches(8.4, 10.2)
+        self.fig.subplots_adjust(bottom=0.27)
         self.timer = None
         self._lock = False
         from matplotlib.widgets import Button, Slider
-        specs = [("年 −", lambda: self.move_year(-1)), ("年 +", lambda: self.move_year(1)),
-                 ("月 −", lambda: self.move_month(-1)), ("月 +", lambda: self.move_month(1)),
-                 ("日 −", lambda: self.move_day(-1)), ("日 +", lambda: self.move_day(1)),
-                 ("再生/停止", self.toggle_play)]
+        nav = [("年 −", lambda: self.move_year(-1)), ("年 +", lambda: self.move_year(1)),
+               ("月 −", lambda: self.move_month(-1)), ("月 +", lambda: self.move_month(1)),
+               ("日 −", lambda: self.move_day(-1)), ("日 +", lambda: self.move_day(1)),
+               ("時 −", lambda: self.move_hour(-1)), ("時 +", lambda: self.move_hour(1)),
+               ("再生/停止", self.toggle_play)]
         self.buttons = []
-        w, gap, x0 = 0.11, 0.015, 0.08
-        for i, (text, fn) in enumerate(specs):
-            b = Button(self.fig.add_axes([x0 + i * (w + gap), 0.095, w, 0.045]), text)
+        w, gap, x0 = 0.09, 0.012, 0.06
+        for i, (text, fn) in enumerate(nav):
+            b = Button(self.fig.add_axes([x0 + i * (w + gap), 0.165, w, 0.04]), text)
             b.on_clicked(lambda _e, fn=fn: fn())
             self.buttons.append(b)
-        self.slider = Slider(self.fig.add_axes([0.08, 0.035, 0.74, 0.03]), "", 0, len(self.avail) - 1,
-                             valinit=len(self.avail) - 1, valstep=1)
+        self.toggles = {}
+        if obs:
+            for i, (key, text) in enumerate([("temp", "気温"), ("wind", "風"), ("rh", "湿度"), ("vis", "視程")]):
+                b = Button(self.fig.add_axes([x0 + i * (w + gap), 0.11, w, 0.04]), text)
+                b.on_clicked(lambda _e, k=key: self.toggle(k))
+                self.toggles[key] = b
+                self.buttons.append(b)
+            self._paint_toggles()
+        self.slider = Slider(self.fig.add_axes([0.08, 0.05, 0.70, 0.03]), "", 0, len(self.times) - 1,
+                             valinit=len(self.times) - 1, valstep=1)
         self.slider.on_changed(lambda v: None if self._lock else self.show(int(v)))
         self.fig.canvas.mpl_connect("key_press_event", self.on_key)
-        self.pos = len(self.avail) - 1
+        self.pos = len(self.times) - 1
+        self.show(self.pos)
+
+    @staticmethod
+    def label(ts, hourly):
+        """気象庁の時別値は「その時刻までの1時間」なので 0時は前日の24時と表示する。"""
+        if not hourly:
+            return ts.normalize(), f"{ts:%Y年%m月%d日}"
+        d, h = (ts - pd.Timedelta(days=1), 24) if ts.hour == 0 else (ts, ts.hour)
+        return d.normalize(), f"{d:%Y年%m月%d日} {h}時"
+
+    def _paint_toggles(self):
+        for k, b in self.toggles.items():
+            on = self.m.flags[k]
+            b.ax.set_facecolor("#9fd6a0" if on else "#dddddd")
+            b.hovercolor = "#7cc47d" if on else "#cccccc"
+            b.color = "#9fd6a0" if on else "#dddddd"
+
+    def toggle(self, key):
+        self.m.flags[key] = not self.m.flags[key]
+        self._paint_toggles()
         self.show(self.pos)
 
     def show(self, pos):
-        self.pos = int(min(max(pos, 0), len(self.avail) - 1))
-        d = self.avail[self.pos]
-        self.m.draw(self.df.iloc[self.pos][self.m.names].values.astype(float), f"海面水温 {d:%Y年%m月%d日}")
+        self.pos = int(min(max(pos, 0), len(self.times) - 1))
+        ts = self.times[self.pos]
+        day, text = self.label(ts, self.obs is not None)
+        row = (self.sst.loc[day] if day in self.sst.index else pd.Series(np.nan, index=self.sst.columns))
+        o = None
+        if self.obs:
+            o = {k: self.obs[k].reindex([ts], columns=self.m.st_names).iloc[0].values for k in self.obs}
+        self.m.draw(row[self.m.names].values.astype(float), "海面水温(日別)" + (" + 官署(時別) " if o else " ") + text, o)
         self._lock = True
         self.slider.set_val(self.pos)
-        self.slider.valtext.set_text(f"{d:%Y-%m-%d}")
+        self.slider.valtext.set_text(f"{ts:%Y-%m-%d %H:%M}")
         self._lock = False
         self.fig.canvas.draw_idle()
 
     def nearest(self, target):
-        i = int(self.avail.searchsorted(target))
-        cand = [j for j in (i - 1, i) if 0 <= j < len(self.avail)]
-        return min(cand, key=lambda j: abs(self.avail[j] - target))
+        i = int(self.times.searchsorted(target))
+        cand = [j for j in (i - 1, i) if 0 <= j < len(self.times)]
+        return min(cand, key=lambda j: abs(self.times[j] - target))
+
+    def move_hour(self, n):
+        new = min(max(self.pos + n, 0), len(self.times) - 1)
+        if self.times[new].year == self.times[self.pos].year:  # 別の年へは飛ばない
+            self.show(new)
 
     def move_day(self, n):
-        self.show(self.pos + n)
+        self.show(self.nearest(self.times[self.pos] + pd.DateOffset(days=n)))
 
     def move_month(self, n):
-        self.show(self.nearest(self.avail[self.pos] + pd.DateOffset(months=n)))
+        self.show(self.nearest(self.times[self.pos] + pd.DateOffset(months=n)))
 
     def move_year(self, n):
-        self.show(self.nearest(self.avail[self.pos] + pd.DateOffset(years=n)))
+        target = self.times[self.pos] + pd.DateOffset(years=n)
+        new = self.nearest(target)
+        if self.times[new].year == target.year:  # データの無い年へは動かない
+            self.show(new)
 
     def toggle_play(self):
         if self.timer is None:
@@ -404,16 +564,19 @@ class Viewer:
             self.timer = None
 
     def tick(self):
-        d = self.avail[self.pos]
+        cur = self.times[self.pos]
         nxt = self.pos + 1
-        if nxt >= len(self.avail) or self.avail[nxt].year != d.year:  # その年の夏の終わり -> 同じ年の頭に戻る
-            nxt = self.nearest(pd.Timestamp(d.year, 6, 1))
+        if nxt >= len(self.times) or self.times[nxt].year != cur.year:  # その年の夏の終わり -> 同じ年の頭に戻る
+            nxt = self.nearest(pd.Timestamp(cur.year, 6, 1))
         self.show(nxt)
 
     def on_key(self, e):
-        {"right": lambda: self.move_day(1), "left": lambda: self.move_day(-1),
-         "up": lambda: self.move_year(1), "down": lambda: self.move_year(-1),
+        {"right": lambda: self.move_hour(1), "left": lambda: self.move_hour(-1),
+         "up": lambda: self.move_day(1), "down": lambda: self.move_day(-1),
          "pageup": lambda: self.move_month(1), "pagedown": lambda: self.move_month(-1),
+         "]": lambda: self.move_year(1), "[": lambda: self.move_year(-1),
+         "1": lambda: self.toggle("temp"), "2": lambda: self.toggle("wind"),
+         "3": lambda: self.toggle("rh"), "4": lambda: self.toggle("vis"),
          " ": self.toggle_play}.get(e.key, lambda: None)()
 
 
@@ -423,7 +586,15 @@ def cmd_viewer(df, args):
         plt.rcParams[k] = []  # 矢印キー等をこのビューアの操作に使うため
     if not args.summer and not args.all_season:
         df = summer(df)
-    v = Viewer(df, args)
+    obs = None
+    if not args.no_obs:
+        obs = load_obs(args.obs_dir)
+        if obs is None:
+            print(f"官署データが見つかりません ({args.obs_dir})。海面水温だけで表示します。--obs-dir で指定できます。")
+        else:
+            print(f"官署データ: {obs['temp'].index.min():%Y-%m-%d} 〜 {obs['temp'].index.max():%Y-%m-%d}, "
+                  f"{obs['temp'].shape[1]}地点")
+    v = Viewer(df, args, obs)
     if args.date:
         v.show(v.nearest(pd.Timestamp(args.date)))
     plt.show()
@@ -445,6 +616,8 @@ def main():
     mp.add_argument("--interval-deg", type=float, default=0.5, help="等温線の間隔(℃)")
     vw = sp.add_parser("viewer", help="年・月・日をFigure上のボタンで操作 (既定は夏季のみ)")
     vw.add_argument("--date", help="最初に表示する日 (省略で最新)")
+    vw.add_argument("--obs-dir", default=OBS_DIR, help="官署の時別値CSVのフォルダ")
+    vw.add_argument("--no-obs", action="store_true", help="官署データを使わない")
     vw.add_argument("--all-season", action="store_true", help="夏季に限らず全期間を対象にする")
     vw.add_argument("--reach", type=float, default=1.5)
     vw.add_argument("--interval-deg", type=float, default=1.0, help="等温線の間隔(℃)")
