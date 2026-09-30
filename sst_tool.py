@@ -22,6 +22,7 @@ import os
 import matplotlib
 import matplotlib.cm
 import matplotlib.colors
+import matplotlib.patches
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -400,6 +401,14 @@ class MapDrawer:
             if calm.any():
                 self.arts.append(ax.scatter(lon[calm], lat[calm], s=260, facecolors="none", edgecolors="k",
                                             zorder=7))
+        if f["vis"]:  # 視程 = 観測点を中心とした半径(km)の円 (縦横とも実距離)
+            for i in np.where(~np.isnan(vis))[0]:
+                r = vis[i]
+                self.arts.append(matplotlib.patches.Ellipse(
+                    (lon[i], lat[i]), 2 * r / (111.0 * math.cos(math.radians(lat[i]))), 2 * r / 111.0,
+                    fc=(1, 0, 1, .12) if fog[i] else (.2, .2, .2, .08),
+                    ec="m" if fog[i] else "#555", lw=1.2, zorder=5))
+                ax.add_patch(self.arts[-1])
         for i, name in enumerate(self.st_names):
             parts = []
             if f["temp"] and not np.isnan(t[i]):
@@ -408,7 +417,7 @@ class MapDrawer:
                 parts.append(f"{rh[i]:.0f}%")
             if f["vis"] and not np.isnan(vis[i]):
                 parts.append(f"{vis[i]:.1f}km")
-            self.arts.append(ax.text(lon[i] + .07, lat[i] - .08, name + ("\n" + " ".join(parts) if parts else ""),
+            self.arts.append(ax.text(lon[i] + .07, lat[i] - .08, "\n".join([name] + parts),
                                      fontsize=7, va="top", zorder=8, color="#c00000" if fog[i] else "k",
                                      bbox=dict(fc="w", ec="none", alpha=.65, pad=.4)))
 
@@ -471,10 +480,10 @@ class Viewer:
         self.timer = None
         self._lock = False
         from matplotlib.widgets import Button, Slider
-        nav = [("年 −", lambda: self.move_year(-1)), ("年 +", lambda: self.move_year(1)),
-               ("月 −", lambda: self.move_month(-1)), ("月 +", lambda: self.move_month(1)),
-               ("日 −", lambda: self.move_day(-1)), ("日 +", lambda: self.move_day(1)),
-               ("時 −", lambda: self.move_hour(-1)), ("時 +", lambda: self.move_hour(1)),
+        nav = [("年 −", lambda: self.move_year(-1)), ("月 −", lambda: self.move_month(-1)),
+               ("日 −", lambda: self.move_day(-1)), ("時 −", lambda: self.move_hour(-1)),
+               ("時 +", lambda: self.move_hour(1)), ("日 +", lambda: self.move_day(1)),
+               ("月 +", lambda: self.move_month(1)), ("年 +", lambda: self.move_year(1)),
                ("再生/停止", self.toggle_play)]
         self.buttons = []
         w, gap, x0 = 0.09, 0.012, 0.06
@@ -491,10 +500,10 @@ class Viewer:
                 self.buttons.append(b)
             self._paint_toggles()
         self.slider = Slider(self.fig.add_axes([0.08, 0.05, 0.70, 0.03]), "", 0, len(self.times) - 1,
-                             valinit=len(self.times) - 1, valstep=1)
+                             valinit=0, valstep=1)
         self.slider.on_changed(lambda v: None if self._lock else self.show(int(v)))
         self.fig.canvas.mpl_connect("key_press_event", self.on_key)
-        self.pos = len(self.times) - 1
+        self.pos = 0
         self.show(self.pos)
 
     @staticmethod
