@@ -184,15 +184,34 @@ def fog_heat(ax, n, k, title, norm, cmap):
     return ScalarMappable(norm=norm, cmap=cmap)
 
 
+def hourly_start_years(coast, full=0.9, floor=0.7):
+    """官署ごとに、視程が毎時で記録されるようになった最初の年。
+    その年の視程の記録率(6〜8月の全時刻のうち値のある割合)が90%以上で、以後の年も70%を下回らない最初の年。"""
+    yr = coast["time"].dt.year
+    cov = coast.groupby(["station", yr])["vis"].apply(lambda s: s.notna().mean()).unstack(0)
+    start = {}
+    for st in cov.columns:
+        c = cov[st]
+        start[st] = next((y for y in c.index if c.loc[y] >= full and c.loc[y:].min() >= floor), None)
+    return start
+
+
 def fog_valid(df, args):
-    """沿岸官署を読み、海面水温と結合して (全データ, 視程・湿度・気温・海面水温がそろった時刻だけ) を返す。"""
+    """沿岸官署を読み、海面水温と結合して (全データ, 視程・湿度・気温・海面水温がそろった時刻だけ) を返す。
+    既定では、官署ごとに視程が毎時になった年以降だけを使う (間引かれた古い年は観測時刻が偏るので除く)。"""
     coast = load_coast(args.coast_dir)
     if coast is None:
         raise SystemExit(f"沿岸官署のCSVが見つかりません: {args.coast_dir} (--coast-dir で指定)")
+    start = hourly_start_years(coast)
+    if not getattr(args, "all_years", False):
+        coast = coast[coast["time"].dt.year >= coast["station"].map(lambda s: start.get(s) or 9999)]
+        print("視程が毎時になった年(この年以降を使用): " + ", ".join(f"{k} {v}" for k, v in start.items() if k in STATION_SST))
     d = fog_dataset(df, coast)
     if args.from_year:
         d = d[d["time"].dt.year >= args.from_year]
-    return d, d.dropna(subset=["dT", "RH", "fog"])
+    v = d.dropna(subset=["dT", "RH", "fog"])
+    v.attrs["start"] = {} if getattr(args, "all_years", False) else start
+    return d, v
 
 
 def fog_station_figure(v):
@@ -200,12 +219,14 @@ def fog_station_figure(v):
     from matplotlib.colors import Normalize
     stations = [s for s in STATION_SST if s in set(v["station"])]
     ncol = (len(stations) + 1) // 2
+    start = v.attrs.get("start", {})
     tabs = {name: fog_table(v[v["station"] == name]) for name in stations}
     norm = Normalize(0, max(1, max(t[1].values.max() for t in tabs.values())))
     cmap = plt.get_cmap("magma_r")
     fig, axs = plt.subplots(2, ncol, figsize=(4.2 * ncol + 1, 8), squeeze=False)
     for ax, name in zip(axs.ravel(), stations):
-        im = fog_heat(ax, *tabs[name], f"{name} (海域: {STATION_SST[name]})", norm, cmap)
+        im = fog_heat(ax, *tabs[name], f"{name} (海域: {STATION_SST[name]}"
+                      + (f", {start[name]}年〜" if start.get(name) else "") + ")", norm, cmap)
     fig.tight_layout(rect=(0, .03, .93, 1))
     fig.text(.01, .005, FOG_NOTE, fontsize=9)
     cax = fig.add_axes([.945, .2, .015, .6])
@@ -217,7 +238,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--dir", default=HERE, help="海面水温 *.txt のあるフォルダ")
     p.add_argument("--coast-dir", default=COAST_DIR, help="沿岸官署の時別値CSVのフォルダ")
-    p.add_argument("--from-year", type=int, help="この年以降だけ使う")
+    p.add_argument("--from-year", type=int, help="この年以降だけ使う (官署ごとの毎時になった年と合わせ、遅い方を使う)")
+    p.add_argument("--all-years", action="store_true", help="視程が間引かれていた古い年も含める (既定は毎時になった年以降だけ)")
     a = p.parse_args()
     setup_font()
     _, v = fog_valid(summer(load(a.dir)), a)
