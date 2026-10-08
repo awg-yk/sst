@@ -6,7 +6,7 @@
 必要: pip install numpy pandas matplotlib
 データ (このファイルと同じフォルダに置く):
     海面水温   *.txt                  (気象庁 海面水温 日別値, 12海域)
-    沿岸官署   東北地方気象官署時別値/*.csv  (気象庁 時別値, 年ごと)
+    沿岸官署   東北地方沿岸気象官署時別値/*.csv  (気象庁 時別値, 年ごと)
 
 図: 官署ごとの、相対湿度 × (気温−海面水温) の霧の発生率(色)。
     マス内の数字は 上=霧が出た回数 / 下=該当した回数。灰色=該当回数が少なく発生率を出さない。
@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-COAST_DIR = os.path.join(HERE, "東北地方気象官署時別値")  # 気象庁の時別値(1時間ごと)
+COAST_DIR = os.path.join(HERE, "東北地方沿岸気象官署時別値")  # 気象庁の時別値(1時間ごと)
 
 
 def setup_font():
