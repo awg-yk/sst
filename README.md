@@ -5,9 +5,9 @@
 
 ```
 pip install numpy pandas matplotlib
-python fog_plot.py                   # 官署ごとに、視程が毎時になった年以降だけ (既定)
-python fog_plot.py --from-year 2014  # さらに、この年以降だけに絞る
-python fog_plot.py --all-years       # 視程が間引かれていた古い年も含める
+python fog_plot.py                   # 1982年からの全期間 (視程の記録は1989年から)
+python fog_plot.py --from-year 2014  # この年以降だけに絞る
+python fog_plot.py --hourly-only     # 官署ごとに、視程が毎時になった年以降だけ
 ```
 
 - `fog_plot.py` 1ファイルで動きます。ファイルには保存せず、官署別の図を画面に表示します。

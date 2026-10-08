@@ -2,7 +2,11 @@
 ファイルに保存せず画面に表示する (このファイル1つで動きます)。
 
     python fog_plot.py                  # 全期間
-    python fog_plot.py --from-year 2020 # 視程が毎時になった2020年以降だけ
+    python fog_plot.py --from-year 2020 # 2020年以降だけ
+    python fog_plot.py --hourly-only    # 官署ごとに、視程が毎時になった年以降だけ
+
+既定は1982年からの全期間です (視程の記録は1989年から。1989年以前は図に入りません。
+2019年以前は視程が3〜6時間おきなど間引かれている官署が多く、観測時刻の偏りがあります)。
 
 必要: pip install numpy pandas matplotlib
 データ (このファイルと同じフォルダに置く):
@@ -203,14 +207,14 @@ def fog_valid(df, args):
     if coast is None:
         raise SystemExit(f"沿岸官署のCSVが見つかりません: {args.coast_dir} (--coast-dir で指定)")
     start = hourly_start_years(coast)
-    if not getattr(args, "all_years", False):
+    if getattr(args, "hourly_only", False):
         coast = coast[coast["time"].dt.year >= coast["station"].map(lambda s: start.get(s) or 9999)]
         print("視程が毎時になった年(この年以降を使用): " + ", ".join(f"{k} {v}" for k, v in start.items() if k in STATION_SST))
     d = fog_dataset(df, coast)
     if args.from_year:
         d = d[d["time"].dt.year >= args.from_year]
     v = d.dropna(subset=["dT", "RH", "fog"])
-    v.attrs["start"] = {} if getattr(args, "all_years", False) else start
+    v.attrs["start"] = start if getattr(args, "hourly_only", False) else {}
     return d, v
 
 
@@ -239,7 +243,7 @@ def main():
     p.add_argument("--dir", default=HERE, help="海面水温 *.txt のあるフォルダ")
     p.add_argument("--coast-dir", default=COAST_DIR, help="沿岸官署の時別値CSVのフォルダ")
     p.add_argument("--from-year", type=int, help="この年以降だけ使う (官署ごとの毎時になった年と合わせ、遅い方を使う)")
-    p.add_argument("--all-years", action="store_true", help="視程が間引かれていた古い年も含める (既定は毎時になった年以降だけ)")
+    p.add_argument("--hourly-only", action="store_true", help="官署ごとに、視程が毎時になった年以降だけを使う (既定は1982年からの全期間。視程の記録は1989年から)")
     a = p.parse_args()
     setup_font()
     _, v = fog_valid(summer(load(a.dir)), a)
