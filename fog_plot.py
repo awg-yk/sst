@@ -1,4 +1,5 @@
-"""低視程(視程<1km)の出現率を官署別に示す図を、ファイルに保存せず画面に表示する (このファイル1つで動きます)。
+"""低視程(視程<1km)だった回数を、相対湿度 × (気温−海面水温) の階級ごとに官署別に示す図を、
+ファイルに保存せず画面に表示する (このファイル1つで動きます)。
 
     python fog_plot.py                  # 全期間
     python fog_plot.py --from-year 2020 # 視程が毎時になった2020年以降だけ
@@ -8,8 +9,8 @@
     海面水温   *.txt                  (気象庁 海面水温 日別値, 12海域)
     沿岸官署   東北地方沿岸気象官署時別値/*.csv  (気象庁 時別値, 年ごと)
 
-図: 官署ごとの、相対湿度 × (気温−海面水温) の低視程の出現率(色)。
-    マス内の数字は 上=視程<1kmだった回数 / 下=該当した回数。灰色=該当回数が少なく発生率を出さない。
+図: 官署ごとに、マスの色=視程<1kmだった回数。マス内の数字は 上=視程<1kmだった回数 / 下=該当した回数。
+    灰色=該当した時刻はあるが視程<1kmは無かった (数字は 0 / 該当回数)。空白=該当した時刻が無い。
 """
 import argparse
 import csv
@@ -150,80 +151,35 @@ def _label(bins, fmt="{:g}", single=False):
     return out
 
 
-def fog_table(d, min_n=30):
-    """気温-海面水温(dT) × 相対湿度 の階級ごとの (低視程の出現率% [観測数min_n未満はNaN], 該当した回数, うち低視程の回数)。"""
+def fog_table(d):
+    """気温-海面水温(dT) × 相対湿度 の階級ごとの (該当した回数, うち視程<1kmだった回数)。"""
     d = d.dropna(subset=["dT", "RH", "fog"]).copy()
     d["dTc"] = pd.cut(d["dT"], DT_BINS, right=False, labels=_label(DT_BINS))
     d["RHc"] = pd.cut(d["RH"], RH_BINS, right=False, labels=_label(RH_BINS, single=True))
     n = d.pivot_table(index="RHc", columns="dTc", values="fog", aggfunc="count", observed=False).fillna(0)
-    p = d.pivot_table(index="RHc", columns="dTc", values="fog", aggfunc="mean", observed=False) * 100
-    k = d.pivot_table(index="RHc", columns="dTc", values="fog", aggfunc="sum", observed=False).fillna(0)
-    return p.reindex(index=n.index, columns=n.columns).where(n >= min_n), n, k
+    k = d.pivot_table(index="RHc", columns="dTc", values="fog", aggfunc="sum", observed=False)
+    return n, k.reindex(index=n.index, columns=n.columns).fillna(0)
 
 
-FULL_N = 50  # 該当回数がこれ以上のマスは濃さ100%。これ未満は回数に応じて薄くする (回数が少ない高い値が目立たないように)
-METRICS = {
-    "share": "低視程(視程<1km)だった時刻のうち、このマスに入っていた割合 %  (各官署で合計100%)",
-    "lift": "相対リスク = このマスの出現率 ÷ その官署全体の出現率  (1=平均、2=平均の2倍)",
-    "count": "視程<1kmだった回数 (マス内の数字の上と同じ)",
-    "rate": "低視程(視程<1km)の出現率 %  (= 該当した時刻のうち視程<1kmだった割合)",
-}
+FOG_NOTE = "マス内の数字: 上=視程<1kmだった回数 / 下=該当した回数。色=視程<1kmだった回数。灰色=視程<1kmは0回、空白=該当なし"
 
 
-def fog_note(metric):
-    note = "マス内の数字: 上=視程<1kmだった回数 / 下=該当した回数 (分子/分母)。"
-    if metric in ("share", "count"):
-        return note + ("色=視程<1kmだった時刻全体に占める割合。" if metric == "share" else "色=視程<1kmだった回数。") + "灰色=該当なし"
-    return note + f"薄い=該当回数が{FULL_N}回未満 (少ないほど薄い)。灰色=該当回数が少なく値を出さない"
-
-
-def metric_values(p, n, k, metric, min_n):
-    """マスごとの指標。share=低視程の時刻のうちの割合, lift=相対リスク(平均の何倍), rate=出現率。"""
-    if metric == "count":
-        return k.where(n > 0)
-    if metric == "share":
-        return k / k.values.sum() * 100 if k.values.sum() else k * np.nan
-    if metric == "lift":
-        base = k.values.sum() / n.values.sum() if n.values.sum() else np.nan
-        return (k / n.where(n > 0)).where(n >= min_n) / base
-    return p
-
-
-def metric_style(metric, vals_list, ns):
-    """(norm, cmap)。色の上限は、該当回数が十分あるマスの最大値 (回数の少ない極端なマスには引きずられない)。"""
-    from matplotlib.colors import Normalize
-    reliable = np.concatenate([v.values[n.values >= FULL_N] for v, n in zip(vals_list, ns)] or [[]])
-    reliable = reliable[np.isfinite(reliable)]
-    top = float(reliable.max()) if len(reliable) else 1.0
-    if metric == "lift":  # 比なので対数目盛り (1/16〜16倍)。0倍は一番青い色
-        from matplotlib.colors import FuncNorm
-        return FuncNorm((lambda x: np.log2(np.maximum(x, 2.0 ** -4)), lambda x: 2.0 ** x),
-                        vmin=2.0 ** -4, vmax=2.0 ** 4), plt.get_cmap("RdBu_r")
-    return Normalize(0, max(1.0 if metric in ("share", "count") else 10.0, top), clip=True), plt.get_cmap("magma_r")
-
-
-def fog_heat(ax, vals, n, k, title, norm, cmap, fade=True):
-    """マスの色=指標。数字は 上=視程<1kmだった回数 / 下=その階級に該当した回数 (分子/分母)。
-    値を出さないマスは灰色で、回数だけ薄く表示する。fade=Trueなら該当回数が少ないほど薄い。"""
+def fog_heat(ax, n, k, title, norm, cmap):
+    """色=視程<1kmだった回数。0回のマスは灰色、該当する時刻が無いマスは空白。"""
     from matplotlib.colors import ListedColormap
     from matplotlib.cm import ScalarMappable
-    ax.imshow(np.where(n.values > 0, 1.0, np.nan), origin="lower", aspect="auto",
+    nv, kv = n.values, k.values
+    ax.imshow(np.where(nv > 0, 1.0, np.nan), origin="lower", aspect="auto",
               cmap=ListedColormap(["#e4e4e4"]), vmin=0, vmax=1)
-    pv, nv = vals.values.astype(float), n.values
-    rgba = cmap(norm(np.nan_to_num(pv)))
-    rgba[..., 3] = np.where(np.isfinite(pv), np.clip(nv / FULL_N, 0.25, 1.0) if fade else 1.0, 0.0)
-    ax.imshow(rgba, origin="lower", aspect="auto")
-    ax.set_xticks(range(vals.shape[1]), vals.columns, rotation=60, fontsize=7)
-    ax.set_yticks(range(vals.shape[0]), vals.index, fontsize=7)
-    for i in range(vals.shape[0]):
-        for j in range(vals.shape[1]):
+    ax.imshow(np.where(kv > 0, kv, np.nan), origin="lower", aspect="auto", cmap=cmap, norm=norm)
+    ax.set_xticks(range(n.shape[1]), n.columns, rotation=60, fontsize=7)
+    ax.set_yticks(range(n.shape[0]), n.index, fontsize=7)
+    for i in range(n.shape[0]):
+        for j in range(n.shape[1]):
             if nv[i, j] > 0:
-                f = norm(pv[i, j]) if np.isfinite(pv[i, j]) else 0
-                dark = np.isfinite(pv[i, j]) and (f > 0.78 or f < 0.12 if cmap.name == "RdBu_r" else f > 0.55) \
-                    and (nv[i, j] >= FULL_N or not fade)
-                ax.text(j, i, f"{int(k.values[i, j])}\n{int(nv[i, j])}", ha="center", va="center",
-                        fontsize=5.5, linespacing=1.0,
-                        color=("w" if dark else "k") if np.isfinite(pv[i, j]) else "#888")
+                dark = kv[i, j] > 0 and norm(kv[i, j]) > 0.55
+                ax.text(j, i, f"{int(kv[i, j])}\n{int(nv[i, j])}", ha="center", va="center",
+                        fontsize=5.5, linespacing=1.0, color="w" if dark else ("#888" if kv[i, j] == 0 else "k"))
     ax.set(title=title, xlabel="気温 − 海面水温 (℃)", ylabel="相対湿度 (%)")
     return ScalarMappable(norm=norm, cmap=cmap)
 
@@ -239,27 +195,21 @@ def fog_valid(df, args):
     return d, d.dropna(subset=["dT", "RH", "fog"])
 
 
-def fog_station_figure(v, metric="share"):
-    """官署別の 相対湿度 × 気温−海面水温 の図 (Figure) を返す。metric: share / lift / rate"""
+def fog_station_figure(v):
+    """官署別の 相対湿度 × 気温−海面水温 の図 (Figure) を返す。色=視程<1kmだった回数 (全官署で同じ色の基準)。"""
+    from matplotlib.colors import Normalize
     stations = [s for s in STATION_SST if s in set(v["station"])]
     ncol = (len(stations) + 1) // 2
-    min_n = 15
-    tabs = {name: fog_table(v[v["station"] == name], min_n=min_n) for name in stations}
-    vals = {name: metric_values(*tabs[name], metric, min_n) for name in stations}
-    ns = [tabs[name][1] for name in stations]
-    norm, cmap = metric_style(metric, [vals[name] for name in stations], ns)
+    tabs = {name: fog_table(v[v["station"] == name]) for name in stations}
+    norm = Normalize(0, max(1, max(t[1].values.max() for t in tabs.values())))
+    cmap = plt.get_cmap("magma_r")
     fig, axs = plt.subplots(2, ncol, figsize=(4.2 * ncol + 1, 8), squeeze=False)
-    for ax, name in zip(axs.ravel(), stations):  # 全官署で同じ色スケール
-        im = fog_heat(ax, vals[name], tabs[name][1], tabs[name][2], f"{name} (海域: {STATION_SST[name]})",
-                      norm, cmap, fade=metric not in ("share", "count"))
+    for ax, name in zip(axs.ravel(), stations):
+        im = fog_heat(ax, *tabs[name], f"{name} (海域: {STATION_SST[name]})", norm, cmap)
     fig.tight_layout(rect=(0, .03, .93, 1))
-    fig.text(.01, .005, fog_note(metric), fontsize=9)
+    fig.text(.01, .005, FOG_NOTE, fontsize=9)
     cax = fig.add_axes([.945, .2, .015, .6])
-    cb = fig.colorbar(im, cax=cax, extend="max" if metric != "lift" else "both")
-    cb.set_label(METRICS[metric], fontsize=8)
-    if metric == "lift":
-        cb.set_ticks([2.0 ** e for e in (-4, -2, 0, 2, 4)])
-        cb.set_ticklabels(["1/16", "1/4", "1", "4", "16"])
+    fig.colorbar(im, cax=cax).set_label("視程<1kmだった回数", fontsize=9)
     return fig
 
 
@@ -268,12 +218,10 @@ def main():
     p.add_argument("--dir", default=HERE, help="海面水温 *.txt のあるフォルダ")
     p.add_argument("--coast-dir", default=COAST_DIR, help="沿岸官署の時別値CSVのフォルダ")
     p.add_argument("--from-year", type=int, help="この年以降だけ使う")
-    p.add_argument("--metric", choices=list(METRICS), default="share",
-                   help="色にする指標: share=低視程の時刻のうち各マスの占める割合(既定), count=視程<1kmだった回数, lift=相対リスク, rate=出現率")
     a = p.parse_args()
     setup_font()
     _, v = fog_valid(summer(load(a.dir)), a)
-    fog_station_figure(v, a.metric)
+    fog_station_figure(v)
     plt.show()
 
 
