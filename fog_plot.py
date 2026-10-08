@@ -161,28 +161,42 @@ def fog_table(d, min_n=30):
     return p.where(n >= min_n), n, k
 
 
-FOG_NOTE = "マス内の数字: 上=視程<1kmだった回数 / 下=該当した回数 (分子/分母)。色=発生率。灰色=該当回数が少なく発生率を出さない"
+FULL_N = 50  # 該当回数がこれ以上のマスは濃さ100%。これ未満は回数に応じて薄くする (回数が少ない高い値が目立たないように)
+FOG_NOTE = ("マス内の数字: 上=視程<1kmだった回数 / 下=該当した回数 (分子/分母)。色=出現率。"
+            f"薄い=該当回数が{FULL_N}回未満 (少ないほど薄い)。灰色=該当回数が少なく出現率を出さない")
 
 
-def fog_heat(ax, p, n, k, title, vmax=None):
-    """マスの色=低視程の出現率。数字は 上=視程<1kmだった回数 / 下=その階級に該当した回数 (分子/分母)。
-    該当回数が少なくて発生率を出さないマスは灰色で、回数だけ薄く表示する。"""
-    from matplotlib.colors import ListedColormap
+def fog_vmax(tabs):
+    """色の上限: 該当回数が十分あるマスの出現率の最大 (回数の少ない極端なマスには引きずられない)。"""
+    vals = np.concatenate([t[0].values[t[1].values >= FULL_N] for t in tabs])
+    vals = vals[np.isfinite(vals)]
+    return max(10.0, float(vals.max())) if len(vals) else 10.0
+
+
+def fog_heat(ax, p, n, k, title, vmax=10.0):
+    """マスの色=低視程の出現率 (vmax以上は最も濃い色)。濃さは該当回数が少ないほど薄い。
+    数字は 上=視程<1kmだった回数 / 下=その階級に該当した回数 (分子/分母)。
+    該当回数が少なくて出現率を出さないマスは灰色で、回数だけ薄く表示する。"""
+    from matplotlib.colors import ListedColormap, Normalize
+    from matplotlib.cm import ScalarMappable
     ax.imshow(np.where(n.values > 0, 1.0, np.nan), origin="lower", aspect="auto",
               cmap=ListedColormap(["#e4e4e4"]), vmin=0, vmax=1)
-    vmax = vmax or max(10, np.nanmax(p.values) if np.isfinite(p.values).any() else 10)
-    im = ax.imshow(p.values.astype(float), origin="lower", aspect="auto", cmap="magma_r", vmin=0, vmax=vmax)
+    norm, cmap = Normalize(0, vmax, clip=True), plt.get_cmap("magma_r")
+    pv, nv = p.values.astype(float), n.values
+    rgba = cmap(norm(np.nan_to_num(pv)))
+    rgba[..., 3] = np.where(np.isfinite(pv), np.clip(nv / FULL_N, 0.25, 1.0), 0.0)
+    ax.imshow(rgba, origin="lower", aspect="auto")
     ax.set_xticks(range(p.shape[1]), p.columns, rotation=60, fontsize=7)
     ax.set_yticks(range(p.shape[0]), p.index, fontsize=7)
     for i in range(p.shape[0]):
         for j in range(p.shape[1]):
-            if n.values[i, j] > 0:
-                big = np.isfinite(p.values[i, j])
-                ax.text(j, i, f"{int(k.values[i, j])}\n{int(n.values[i, j])}", ha="center", va="center",
+            if nv[i, j] > 0:
+                dark = np.isfinite(pv[i, j]) and norm(pv[i, j]) > 0.55 and nv[i, j] >= FULL_N
+                ax.text(j, i, f"{int(k.values[i, j])}\n{int(nv[i, j])}", ha="center", va="center",
                         fontsize=5.5, linespacing=1.0,
-                        color=("w" if p.values[i, j] > 0.55 * vmax else "k") if big else "#888")
+                        color=("w" if dark else "k") if np.isfinite(pv[i, j]) else "#888")
     ax.set(title=title, xlabel="気温 − 海面水温 (℃)", ylabel="相対湿度 (%)")
-    return im
+    return ScalarMappable(norm=norm, cmap=cmap)
 
 
 def fog_valid(df, args):
@@ -201,14 +215,14 @@ def fog_station_figure(v):
     stations = [s for s in STATION_SST if s in set(v["station"])]
     ncol = (len(stations) + 1) // 2
     tabs = {name: fog_table(v[v["station"] == name], min_n=15) for name in stations}
-    vmax = max(10, max(np.nanmax(t[0].values) for t in tabs.values() if np.isfinite(t[0].values).any()))
+    vmax = fog_vmax(tabs.values())
     fig, axs = plt.subplots(2, ncol, figsize=(4.2 * ncol + 1, 8), squeeze=False)
     for ax, name in zip(axs.ravel(), stations):  # 全官署で同じ色スケール
         im = fog_heat(ax, *tabs[name], f"{name} (海域: {STATION_SST[name]})", vmax=vmax)
     fig.tight_layout(rect=(0, .03, .93, 1))
     fig.text(.01, .005, FOG_NOTE, fontsize=9)
     cax = fig.add_axes([.945, .2, .015, .6])
-    fig.colorbar(im, cax=cax, label="低視程(視程<1km)の出現率 %")
+    fig.colorbar(im, cax=cax, extend="max", label="低視程(視程<1km)の出現率 %")
     return fig
 
 
