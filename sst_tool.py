@@ -590,8 +590,9 @@ def fog_conditions(v, rh_min=(90, 95, 97, 99, 100), dt_max=(1, 2, 3, 5, np.inf))
     return f(rate), f(cover), f(num)
 
 
-def fog_heat(ax, p, n, title):
-    im = ax.imshow(p.values.astype(float), origin="lower", aspect="auto", cmap="magma_r", vmin=0, vmax=max(10, np.nanmax(p.values) if np.isfinite(p.values).any() else 10))
+def fog_heat(ax, p, n, title, vmax=None):
+    im = ax.imshow(p.values.astype(float), origin="lower", aspect="auto", cmap="magma_r", vmin=0,
+                   vmax=vmax or max(10, np.nanmax(p.values) if np.isfinite(p.values).any() else 10))
     ax.set_xticks(range(p.shape[1]), p.columns, rotation=60, fontsize=7)
     ax.set_yticks(range(p.shape[0]), p.index, fontsize=7)
     for i in range(p.shape[0]):
@@ -619,11 +620,14 @@ def fog_station_figure(v):
     """官署別の 霧の発生率(相対湿度 × 気温−海面水温) の図 (Figure) を返す。"""
     stations = [s for s in STATION_SST if s in set(v["station"])]
     ncol = (len(stations) + 1) // 2
-    fig, axs = plt.subplots(2, ncol, figsize=(4.2 * ncol, 8), squeeze=False)
-    for ax, name in zip(axs.ravel(), stations):
-        pp, nn = fog_table(v[v["station"] == name], min_n=15)
-        fog_heat(ax, pp, nn, f"{name} (海域: {STATION_SST[name]})")
-    fig.tight_layout()
+    tabs = {name: fog_table(v[v["station"] == name], min_n=15)[0] for name in stations}
+    vmax = max(10, max(np.nanmax(t.values) for t in tabs.values() if np.isfinite(t.values).any()))
+    fig, axs = plt.subplots(2, ncol, figsize=(4.2 * ncol + 1, 8), squeeze=False)
+    for ax, name in zip(axs.ravel(), stations):  # 全官署で同じ色スケール
+        im = fog_heat(ax, tabs[name], None, f"{name} (海域: {STATION_SST[name]})", vmax=vmax)
+    fig.tight_layout(rect=(0, 0, .93, 1))
+    cax = fig.add_axes([.945, .2, .015, .6])
+    fig.colorbar(im, cax=cax, label="霧(視程<1km)の発生率 %")
     return fig
 
 
