@@ -39,7 +39,7 @@ def load_kiri(path):
             if not r or "/" not in r[0] or len(r) <= c + 2:
                 continue
             y, m = map(int, r[0].split("/"))
-            val = float(r[c]) if r[c] != "" and r[c + 1] == "8" else np.nan
+            val = float(r[c]) if r[c] != "" else np.nan  # 品質情報が5(資料不足値: 月の一部が欠測)でも値があれば使う
             out.append((st, y, m, val, int(r[c + 2]) if r[c + 2].isdigit() else np.nan))
     d = pd.DataFrame(out, columns=["station", "yr", "mon", "kiri", "homog"])
     d = d[d["mon"].isin([6, 7, 8])]
