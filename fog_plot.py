@@ -17,6 +17,8 @@ p.add_argument("--dir", default=t.HERE, help="海面水温 *.txt のあるフォ
 p.add_argument("--coast-dir", default=t.COAST_DIR, help="沿岸官署の時別値CSVのフォルダ")
 p.add_argument("--from-year", type=int, help="この年以降だけ使う")
 a = p.parse_args()
+if not hasattr(t, "fog_valid"):
+    raise SystemExit("sst_tool.py が古いです。GitHub の最新の sst_tool.py に置き換えてください。")
 t.setup_font()
 _, v = t.fog_valid(t.summer(t.load(a.dir)), a)
 t.fog_station_figure(v)
