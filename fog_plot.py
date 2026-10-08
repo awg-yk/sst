@@ -165,19 +165,22 @@ FULL_N = 50  # 該当回数がこれ以上のマスは濃さ100%。これ未満�
 METRICS = {
     "share": "低視程(視程<1km)だった時刻のうち、このマスに入っていた割合 %  (各官署で合計100%)",
     "lift": "相対リスク = このマスの出現率 ÷ その官署全体の出現率  (1=平均、2=平均の2倍)",
+    "count": "視程<1kmだった回数 (マス内の数字の上と同じ)",
     "rate": "低視程(視程<1km)の出現率 %  (= 該当した時刻のうち視程<1kmだった割合)",
 }
 
 
 def fog_note(metric):
     note = "マス内の数字: 上=視程<1kmだった回数 / 下=該当した回数 (分子/分母)。"
-    if metric == "share":
-        return note + "色=視程<1kmだった時刻全体に占める割合。灰色=該当なし"
+    if metric in ("share", "count"):
+        return note + ("色=視程<1kmだった時刻全体に占める割合。" if metric == "share" else "色=視程<1kmだった回数。") + "灰色=該当なし"
     return note + f"薄い=該当回数が{FULL_N}回未満 (少ないほど薄い)。灰色=該当回数が少なく値を出さない"
 
 
 def metric_values(p, n, k, metric, min_n):
     """マスごとの指標。share=低視程の時刻のうちの割合, lift=相対リスク(平均の何倍), rate=出現率。"""
+    if metric == "count":
+        return k.where(n > 0)
     if metric == "share":
         return k / k.values.sum() * 100 if k.values.sum() else k * np.nan
     if metric == "lift":
@@ -196,7 +199,7 @@ def metric_style(metric, vals_list, ns):
         from matplotlib.colors import FuncNorm
         return FuncNorm((lambda x: np.log2(np.maximum(x, 2.0 ** -4)), lambda x: 2.0 ** x),
                         vmin=2.0 ** -4, vmax=2.0 ** 4), plt.get_cmap("RdBu_r")
-    return Normalize(0, max(1.0 if metric == "share" else 10.0, top), clip=True), plt.get_cmap("magma_r")
+    return Normalize(0, max(1.0 if metric in ("share", "count") else 10.0, top), clip=True), plt.get_cmap("magma_r")
 
 
 def fog_heat(ax, vals, n, k, title, norm, cmap, fade=True):
@@ -248,7 +251,7 @@ def fog_station_figure(v, metric="share"):
     fig, axs = plt.subplots(2, ncol, figsize=(4.2 * ncol + 1, 8), squeeze=False)
     for ax, name in zip(axs.ravel(), stations):  # 全官署で同じ色スケール
         im = fog_heat(ax, vals[name], tabs[name][1], tabs[name][2], f"{name} (海域: {STATION_SST[name]})",
-                      norm, cmap, fade=metric != "share")
+                      norm, cmap, fade=metric not in ("share", "count"))
     fig.tight_layout(rect=(0, .03, .93, 1))
     fig.text(.01, .005, fog_note(metric), fontsize=9)
     cax = fig.add_axes([.945, .2, .015, .6])
@@ -266,7 +269,7 @@ def main():
     p.add_argument("--coast-dir", default=COAST_DIR, help="沿岸官署の時別値CSVのフォルダ")
     p.add_argument("--from-year", type=int, help="この年以降だけ使う")
     p.add_argument("--metric", choices=list(METRICS), default="share",
-                   help="色にする指標: share=低視程の時刻のうち各マスの占める割合(既定), lift=相対リスク, rate=出現率")
+                   help="色にする指標: share=低視程の時刻のうち各マスの占める割合(既定), count=視程<1kmだった回数, lift=相対リスク, rate=出現率")
     a = p.parse_args()
     setup_font()
     _, v = fog_valid(summer(load(a.dir)), a)
