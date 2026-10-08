@@ -590,15 +590,46 @@ def fog_conditions(v, rh_min=(90, 95, 97, 99, 100), dt_max=(1, 2, 3, 5, np.inf))
     return f(rate), f(cover), f(num)
 
 
-def cmd_fog(df, args):
-    setup_font()
+def fog_heat(ax, p, n, title):
+    im = ax.imshow(p.values.astype(float), origin="lower", aspect="auto", cmap="magma_r", vmin=0, vmax=max(10, np.nanmax(p.values) if np.isfinite(p.values).any() else 10))
+    ax.set_xticks(range(p.shape[1]), p.columns, rotation=60, fontsize=7)
+    ax.set_yticks(range(p.shape[0]), p.index, fontsize=7)
+    for i in range(p.shape[0]):
+        for j in range(p.shape[1]):
+            if np.isfinite(p.values[i, j]):
+                ax.text(j, i, f"{p.values[i, j]:.0f}", ha="center", va="center", fontsize=6,
+                        color="w" if p.values[i, j] > 40 else "k")
+    ax.set(title=title, xlabel="気温 − 海面水温 (℃)", ylabel="相対湿度 (%)")
+    return im
+
+
+
+def fog_valid(df, args):
+    """沿岸官署を読み、海面水温と結合して (全データ, 視程・湿度・気温・海面水温がそろった時刻だけ) を返す。"""
     coast = load_coast(args.coast_dir)
     if coast is None:
         raise SystemExit(f"沿岸官署のCSVが見つかりません: {args.coast_dir} (--coast-dir で指定)")
     d = fog_dataset(df, coast)
     if args.from_year:
         d = d[d["time"].dt.year >= args.from_year]
-    v = d.dropna(subset=["dT", "RH", "fog"])  # 視程・湿度・気温・海面水温がそろった時刻だけ
+    return d, d.dropna(subset=["dT", "RH", "fog"])
+
+
+def fog_station_figure(v):
+    """官署別の 霧の発生率(相対湿度 × 気温−海面水温) の図 (Figure) を返す。"""
+    stations = [s for s in STATION_SST if s in set(v["station"])]
+    ncol = (len(stations) + 1) // 2
+    fig, axs = plt.subplots(2, ncol, figsize=(4.2 * ncol, 8), squeeze=False)
+    for ax, name in zip(axs.ravel(), stations):
+        pp, nn = fog_table(v[v["station"] == name], min_n=15)
+        fog_heat(ax, pp, nn, f"{name} (海域: {STATION_SST[name]})")
+    fig.tight_layout()
+    return fig
+
+
+def cmd_fog(df, args):
+    setup_font()
+    d, v = fog_valid(df, args)
     pd.set_option("display.width", 220, "display.float_format", "{:.1f}".format)
     print(f"官署 {d['station'].nunique()}地点, {d['time'].min():%Y-%m-%d}〜{d['time'].max():%Y-%m-%d}")
     print(f"解析に使える時刻(視程・湿度・気温・海面水温がそろう): {len(v)}  うち霧(視程<{FOG_KM:g}km): {int(v['fog'].sum())} ({v['fog'].mean() * 100:.2f}%)")
@@ -644,31 +675,14 @@ def cmd_fog(df, args):
     fig.savefig(os.path.join(OUT, "fog_distribution.png"), dpi=120)
     plt.close(fig)
 
-    def heat(ax, p, n, title):
-        im = ax.imshow(p.values.astype(float), origin="lower", aspect="auto", cmap="magma_r", vmin=0, vmax=max(10, np.nanmax(p.values) if np.isfinite(p.values).any() else 10))
-        ax.set_xticks(range(p.shape[1]), p.columns, rotation=60, fontsize=7)
-        ax.set_yticks(range(p.shape[0]), p.index, fontsize=7)
-        for i in range(p.shape[0]):
-            for j in range(p.shape[1]):
-                if np.isfinite(p.values[i, j]):
-                    ax.text(j, i, f"{p.values[i, j]:.0f}", ha="center", va="center", fontsize=6,
-                            color="w" if p.values[i, j] > 40 else "k")
-        ax.set(title=title, xlabel="気温 − 海面水温 (℃)", ylabel="相対湿度 (%)")
-        return im
-
     fig, ax = plt.subplots(figsize=(10, 6.5))
-    im = heat(ax, p, n, "霧(視程<1km)の発生率 % : 相対湿度 × (気温−海面水温)  [全官署]")
+    im = fog_heat(ax, p, n, "霧(視程<1km)の発生率 % : 相対湿度 × (気温−海面水温)  [全官署]")
     fig.colorbar(im, ax=ax, label="霧の発生率 %")
     fig.tight_layout()
     fig.savefig(os.path.join(OUT, "fog_probability.png"), dpi=120)
     plt.close(fig)
 
-    stations = [s for s in STATION_SST if s in set(v["station"])]
-    fig, axs = plt.subplots(2, (len(stations) + 1) // 2, figsize=(4.2 * ((len(stations) + 1) // 2), 8), squeeze=False)
-    for ax, name in zip(axs.ravel(), stations):
-        pp, nn = fog_table(v[v["station"] == name], min_n=15)
-        heat(ax, pp, nn, f"{name} (海域: {STATION_SST[name]})")
-    fig.tight_layout()
+    fig = fog_station_figure(v)
     fig.savefig(os.path.join(OUT, "fog_probability_by_station.png"), dpi=110)
     plt.close(fig)
     print("\n保存先:", OUT, "(fog_*.png / fog_*.csv)")
