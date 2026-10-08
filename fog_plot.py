@@ -59,7 +59,6 @@ def summer(df):
 
 
 def _read_rows(path):
-    import csv
     for enc in ("utf-8-sig", "cp932"):
         try:
             with open(path, encoding=enc, newline="") as f:
