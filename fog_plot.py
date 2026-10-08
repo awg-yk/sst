@@ -1,4 +1,4 @@
-"""霧(視程<1km)の発生率を官署別に示す図を、ファイルに保存せず画面に表示する (このファイル1つで動きます)。
+"""低視程(視程<1km)の出現率を官署別に示す図を、ファイルに保存せず画面に表示する (このファイル1つで動きます)。
 
     python fog_plot.py                  # 全期間
     python fog_plot.py --from-year 2020 # 視程が毎時になった2020年以降だけ
@@ -8,8 +8,8 @@
     海面水温   *.txt                  (気象庁 海面水温 日別値, 12海域)
     沿岸官署   東北地方沿岸気象官署時別値/*.csv  (気象庁 時別値, 年ごと)
 
-図: 官署ごとの、相対湿度 × (気温−海面水温) の霧の発生率(色)。
-    マス内の数字は 上=霧が出た回数 / 下=該当した回数。灰色=該当回数が少なく発生率を出さない。
+図: 官署ごとの、相対湿度 × (気温−海面水温) の低視程の出現率(色)。
+    マス内の数字は 上=視程<1kmだった回数 / 下=該当した回数。灰色=該当回数が少なく発生率を出さない。
 """
 import argparse
 import csv
@@ -76,7 +76,7 @@ STATION_SST = {
 }
 
 
-FOG_KM = 1.0  # 視程がこれ未満 = 霧
+FOG_KM = 1.0  # 視程がこれ未満 = 低視程 (霧とは限らない: 降水・煙霧なども含む)
 
 
 def load_coast(coast_dir=COAST_DIR):
@@ -133,7 +133,7 @@ def fog_dataset(sst, coast):
 DT_BINS = [-np.inf, -6, -4, -3, -2, -1, 0, 1, 2, 3, 4, 6, np.inf]
 
 
-RH_BINS = [0, 70, 80, 85, 90, 93, 95, 97, 99, 100, 101]  # 湿度は整数で、霧の時は99/100に集中する
+RH_BINS = [0, 70, 80, 85, 90, 93, 95, 97, 99, 100, 101]  # 湿度は整数で、低視程の時は99/100に集中する
 
 
 def _label(bins, fmt="{:g}", single=False):
@@ -151,7 +151,7 @@ def _label(bins, fmt="{:g}", single=False):
 
 
 def fog_table(d, min_n=30):
-    """気温-海面水温(dT) × 相対湿度 の階級ごとの (霧発生率% [観測数min_n未満はNaN], 該当した回数, うち霧の回数)。"""
+    """気温-海面水温(dT) × 相対湿度 の階級ごとの (低視程の出現率% [観測数min_n未満はNaN], 該当した回数, うち低視程の回数)。"""
     d = d.dropna(subset=["dT", "RH", "fog"]).copy()
     d["dTc"] = pd.cut(d["dT"], DT_BINS, right=False, labels=_label(DT_BINS))
     d["RHc"] = pd.cut(d["RH"], RH_BINS, right=False, labels=_label(RH_BINS, single=True))
@@ -161,11 +161,11 @@ def fog_table(d, min_n=30):
     return p.where(n >= min_n), n, k
 
 
-FOG_NOTE = "マス内の数字: 上=霧が出た回数 / 下=該当した回数 (分子/分母)。色=発生率。灰色=該当回数が少なく発生率を出さない"
+FOG_NOTE = "マス内の数字: 上=視程<1kmだった回数 / 下=該当した回数 (分子/分母)。色=発生率。灰色=該当回数が少なく発生率を出さない"
 
 
 def fog_heat(ax, p, n, k, title, vmax=None):
-    """マスの色=霧の発生率。数字は 上=霧が出た回数 / 下=その階級に該当した回数 (分子/分母)。
+    """マスの色=低視程の出現率。数字は 上=視程<1kmだった回数 / 下=その階級に該当した回数 (分子/分母)。
     該当回数が少なくて発生率を出さないマスは灰色で、回数だけ薄く表示する。"""
     from matplotlib.colors import ListedColormap
     ax.imshow(np.where(n.values > 0, 1.0, np.nan), origin="lower", aspect="auto",
@@ -197,7 +197,7 @@ def fog_valid(df, args):
 
 
 def fog_station_figure(v):
-    """官署別の 霧の発生率(相対湿度 × 気温−海面水温) の図 (Figure) を返す。"""
+    """官署別の 低視程の出現率(相対湿度 × 気温−海面水温) の図 (Figure) を返す。"""
     stations = [s for s in STATION_SST if s in set(v["station"])]
     ncol = (len(stations) + 1) // 2
     tabs = {name: fog_table(v[v["station"] == name], min_n=15) for name in stations}
@@ -208,7 +208,7 @@ def fog_station_figure(v):
     fig.tight_layout(rect=(0, .03, .93, 1))
     fig.text(.01, .005, FOG_NOTE, fontsize=9)
     cax = fig.add_axes([.945, .2, .015, .6])
-    fig.colorbar(im, cax=cax, label="霧(視程<1km)の発生率 %")
+    fig.colorbar(im, cax=cax, label="低視程(視程<1km)の出現率 %")
     return fig
 
 

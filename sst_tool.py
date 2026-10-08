@@ -410,7 +410,7 @@ class MapDrawer:
         ax, f = self.ax, self.flags
         lon, lat = self.st_lon, self.st_lat
         t, w, d, rh, vis = (np.asarray(obs[k], float) for k in ("temp", "wind", "dir", "rh", "vis"))
-        fog = f["vis"] & (vis < 1.0)  # 視程1km未満 = 霧の目安
+        fog = f["vis"] & (vis < 1.0)  # 視程1km未満 = 低視程 (霧の目安だが、霧とは限らない)
         self.arts.append(ax.scatter(lon, lat, s=90, marker="s", c=np.ma.masked_invalid(t) if f["temp"] else "w",
                                     cmap=self.cmap, norm=self.norm, edgecolors=np.where(fog, "m", "k"),
                                     linewidths=np.where(fog, 2.5, 0.8), zorder=6))
@@ -483,7 +483,7 @@ def cmd_player(df, args):
         plt.show()
 
 
-# ---- 霧(視程<1km)の発生条件の解析: 沿岸官署の 気温・相対湿度・視程 と 近くの海域の海面水温 ----
+# ---- 低視程(視程<1km)の発生条件の解析: 沿岸官署の 気温・相対湿度・視程 と 近くの海域の海面水温 ----
 COAST_DIR = os.path.join(HERE, "東北地方沿岸気象官署時別値")  # 気象庁の時別値(1時間ごと)
 # 官署 -> 最も近い海面水温の海域 (違うと思ったらここを直してください)
 STATION_SST = {
@@ -491,7 +491,7 @@ STATION_SST = {
     "秋田": "秋田県沿岸", "酒田": "山形県沿岸", "宮古": "岩手県北部沿岸", "大船渡": "岩手県南部沿岸",
     "石巻": "宮城県沿岸", "小名浜": "福島県沿岸",
 }
-FOG_KM = 1.0  # 視程がこれ未満 = 霧
+FOG_KM = 1.0  # 視程がこれ未満 = 低視程 (霧とは限らない: 降水・煙霧なども含む)
 
 
 def load_coast(coast_dir=COAST_DIR):
@@ -546,7 +546,7 @@ def fog_dataset(sst, coast):
 
 
 DT_BINS = [-np.inf, -6, -4, -3, -2, -1, 0, 1, 2, 3, 4, 6, np.inf]
-RH_BINS = [0, 70, 80, 85, 90, 93, 95, 97, 99, 100, 101]  # 湿度は整数で、霧の時は99/100に集中する
+RH_BINS = [0, 70, 80, 85, 90, 93, 95, 97, 99, 100, 101]  # 湿度は整数で、低視程の時は99/100に集中する
 
 
 def _label(bins, fmt="{:g}", single=False):
@@ -564,7 +564,7 @@ def _label(bins, fmt="{:g}", single=False):
 
 
 def fog_table(d, min_n=30):
-    """気温-海面水温(dT) × 相対湿度 の階級ごとの (霧発生率% [観測数min_n未満はNaN], 該当した回数, うち霧の回数)。"""
+    """気温-海面水温(dT) × 相対湿度 の階級ごとの (低視程の出現率% [観測数min_n未満はNaN], 該当した回数, うち低視程の回数)。"""
     d = d.dropna(subset=["dT", "RH", "fog"]).copy()
     d["dTc"] = pd.cut(d["dT"], DT_BINS, right=False, labels=_label(DT_BINS))
     d["RHc"] = pd.cut(d["RH"], RH_BINS, right=False, labels=_label(RH_BINS, single=True))
@@ -576,7 +576,7 @@ def fog_table(d, min_n=30):
 
 def fog_conditions(v, rh_min=(90, 95, 97, 99, 100), dt_max=(1, 2, 3, 5, np.inf)):
     """「相対湿度≧A かつ |気温−海面水温|≦B」という条件ごとに、
-    発生率(その条件の時に霧だった割合%)と 捕捉率(霧のうち、その条件に入っていた割合%)を返す。"""
+    発生率(その条件の時に低視程だった割合%)と 捕捉率(低視程のうち、その条件に入っていた割合%)を返す。"""
     fog = v["fog"] == 1
     rate, cover, num = {}, {}, {}
     for a in rh_min:
@@ -591,11 +591,11 @@ def fog_conditions(v, rh_min=(90, 95, 97, 99, 100), dt_max=(1, 2, 3, 5, np.inf))
     return f(rate), f(cover), f(num)
 
 
-FOG_NOTE = "マス内の数字: 上=霧が出た回数 / 下=該当した回数 (分子/分母)。色=発生率。灰色=該当回数が少なく発生率を出さない"
+FOG_NOTE = "マス内の数字: 上=視程<1kmだった回数 / 下=該当した回数 (分子/分母)。色=発生率。灰色=該当回数が少なく発生率を出さない"
 
 
 def fog_heat(ax, p, n, k, title, vmax=None):
-    """マスの色=霧の発生率。数字は 上=霧が出た回数 / 下=その階級に該当した回数 (分子/分母)。
+    """マスの色=低視程の出現率。数字は 上=視程<1kmだった回数 / 下=その階級に該当した回数 (分子/分母)。
     該当回数が少なくて発生率を出さないマスは灰色で、回数だけ薄く表示する。"""
     from matplotlib.colors import ListedColormap
     ax.imshow(np.where(n.values > 0, 1.0, np.nan), origin="lower", aspect="auto",
@@ -628,7 +628,7 @@ def fog_valid(df, args):
 
 
 def fog_station_figure(v):
-    """官署別の 霧の発生率(相対湿度 × 気温−海面水温) の図 (Figure) を返す。"""
+    """官署別の 低視程の出現率(相対湿度 × 気温−海面水温) の図 (Figure) を返す。"""
     stations = [s for s in STATION_SST if s in set(v["station"])]
     ncol = (len(stations) + 1) // 2
     tabs = {name: fog_table(v[v["station"] == name], min_n=15) for name in stations}
@@ -639,7 +639,7 @@ def fog_station_figure(v):
     fig.tight_layout(rect=(0, .03, .93, 1))
     fig.text(.01, .005, FOG_NOTE, fontsize=9)
     cax = fig.add_axes([.945, .2, .015, .6])
-    fig.colorbar(im, cax=cax, label="霧(視程<1km)の発生率 %")
+    fig.colorbar(im, cax=cax, label="低視程(視程<1km)の出現率 %")
     return fig
 
 
@@ -648,27 +648,27 @@ def cmd_fog(df, args):
     d, v = fog_valid(df, args)
     pd.set_option("display.width", 220, "display.float_format", "{:.1f}".format)
     print(f"官署 {d['station'].nunique()}地点, {d['time'].min():%Y-%m-%d}〜{d['time'].max():%Y-%m-%d}")
-    print(f"解析に使える時刻(視程・湿度・気温・海面水温がそろう): {len(v)}  うち霧(視程<{FOG_KM:g}km): {int(v['fog'].sum())} ({v['fog'].mean() * 100:.2f}%)")
-    print("\n[官署別] 解析数 / 霧の数 / 霧の割合% / 霧の時の 気温-海水温(中央値) 湿度(中央値)")
+    print(f"解析に使える時刻(視程・湿度・気温・海面水温がそろう): {len(v)}  うち低視程(視程<{FOG_KM:g}km): {int(v['fog'].sum())} ({v['fog'].mean() * 100:.2f}%)")
+    print("\n[官署別] 解析数 / 低視程の数 / 割合% / 低視程の時の 気温-海水温(中央値) 湿度(中央値)")
     g = v.groupby("station")
     st = pd.DataFrame({"n": g.size(), "fog_n": g["fog"].sum().astype(int), "fog_%": g["fog"].mean() * 100,
-                       "霧時dT中央": v[v.fog == 1].groupby("station")["dT"].median(),
-                       "霧時RH中央": v[v.fog == 1].groupby("station")["RH"].median()})
+                       "低視程時dT中央": v[v.fog == 1].groupby("station")["dT"].median(),
+                       "低視程時RH中央": v[v.fog == 1].groupby("station")["RH"].median()})
     print(st.to_string())
     f, nf = v[v.fog == 1], v[v.fog == 0]
     qs = [.05, .1, .25, .5, .75, .9, .95]
-    summ = pd.DataFrame({"霧 dT(℃)": f["dT"].quantile(qs), "霧 RH(%)": f["RH"].quantile(qs),
-                         "霧なし dT(℃)": nf["dT"].quantile(qs), "霧なし RH(%)": nf["RH"].quantile(qs)})
+    summ = pd.DataFrame({"低視程 dT(℃)": f["dT"].quantile(qs), "低視程 RH(%)": f["RH"].quantile(qs),
+                         "視程1km以上 dT(℃)": nf["dT"].quantile(qs), "視程1km以上 RH(%)": nf["RH"].quantile(qs)})
     summ.index = [f"{int(q * 100)}%点" for q in qs]
-    print("\n[分布] 霧の時とそうでない時の 気温-海面水温(dT) と 相対湿度 (パーセント点)")
+    print("\n[分布] 低視程の時とそうでない時の 気温-海面水温(dT) と 相対湿度 (パーセント点)")
     print(summ.to_string())
     p, n, k = fog_table(v)
-    print(f"\n[霧の発生率%] 縦=相対湿度, 横=気温-海面水温(℃)  (観測数30未満は空欄)")
+    print(f"\n[低視程の出現率%] 縦=相対湿度, 横=気温-海面水温(℃)  (観測数30未満は空欄)")
     print(p.to_string(na_rep="-"))
     rate, cover, num = fog_conditions(v)
-    print("\n[条件別の霧の発生率%] 行=相対湿度の下限, 列=|気温-海面水温|の上限 (その条件の時に霧だった割合)")
+    print("\n[条件別の低視程の出現率%] 行=相対湿度の下限, 列=|気温-海面水温|の上限 (その条件の時に低視程だった割合)")
     print(rate.to_string())
-    print("[条件別の捕捉率%] (霧が起きた時のうち、その条件に入っていた割合)")
+    print("[条件別の捕捉率%] (低視程だった時のうち、その条件に入っていた割合)")
     print(cover.to_string())
     os.makedirs(OUT, exist_ok=True)
     rate.to_csv(os.path.join(OUT, "fog_condition_rate.csv"), encoding="utf-8-sig")
@@ -683,8 +683,8 @@ def cmd_fog(df, args):
     fig, axs = plt.subplots(1, 2, figsize=(13, 5))
     for ax, col, bins, xl in ((axs[0], "dT", np.arange(-10, 10.1, 0.5), "気温 − 海面水温 (℃)"),
                               (axs[1], "RH", np.arange(40, 100.1, 1), "相対湿度 (%)")):
-        ax.hist(nf[col].clip(bins[0], bins[-1]), bins, density=True, alpha=.5, color="#888", label=f"霧なし (n={len(nf)})")
-        ax.hist(f[col].clip(bins[0], bins[-1]), bins, density=True, alpha=.7, color="#d02090", label=f"霧 視程<{FOG_KM:g}km (n={len(f)})")
+        ax.hist(nf[col].clip(bins[0], bins[-1]), bins, density=True, alpha=.5, color="#888", label=f"視程1km以上 (n={len(nf)})")
+        ax.hist(f[col].clip(bins[0], bins[-1]), bins, density=True, alpha=.7, color="#d02090", label=f"低視程 視程<{FOG_KM:g}km (n={len(f)})")
         ax.set(xlabel=xl, ylabel="割合(密度)", title=f"{xl} の分布")
         ax.legend()
         ax.grid(alpha=.3)
@@ -693,8 +693,8 @@ def cmd_fog(df, args):
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(10, 6.5))
-    im = fog_heat(ax, p, n, k, "霧(視程<1km)の発生率 % : 相対湿度 × (気温−海面水温)  [全官署]")
-    fig.colorbar(im, ax=ax, label="霧の発生率 %")
+    im = fog_heat(ax, p, n, k, "低視程(視程<1km)の出現率 % : 相対湿度 × (気温−海面水温)  [全官署]")
+    fig.colorbar(im, ax=ax, label="低視程の出現率 %")
     fig.tight_layout(rect=(0, .03, 1, 1))
     fig.text(.01, .005, FOG_NOTE, fontsize=8)
     fig.savefig(os.path.join(OUT, "fog_probability.png"), dpi=120)
@@ -881,7 +881,7 @@ def main():
     vw.add_argument("--all-season", action="store_true", help="夏季に限らず全期間を対象にする")
     vw.add_argument("--reach", type=float, default=1.5)
     vw.add_argument("--interval-deg", type=float, default=1.0, help="等温線の間隔(℃)")
-    fg = sp.add_parser("fog", help="沿岸官署の 気温-海水温・相対湿度 と 霧(視程<1km) の関係を解析")
+    fg = sp.add_parser("fog", help="沿岸官署の 気温-海水温・相対湿度 と 低視程(視程<1km) の関係を解析")
     fg.add_argument("--coast-dir", default=COAST_DIR, help="沿岸官署の時別値CSVのフォルダ")
     fg.add_argument("--from-year", type=int, help="この年以降だけ使う (視程は2020年から毎時で、それ以前は間引き)")
     pl = sp.add_parser("player", help="期間を再生 (地図+等温線)")
