@@ -133,7 +133,7 @@ def fog_dataset(sst, coast):
 DT_BINS = [-np.inf, -6, -4, -3, -2, -1, 0, 1, 2, 3, 4, 6, np.inf]
 
 
-RH_BINS = [0, 70, 80, 85, 90, 93, 95, 97, 99, 100, 101]  # 湿度は整数で、低視程の時は99/100に集中する
+RH_BINS = [-np.inf] + list(range(90, 102))  # 湿度90%未満は1階級、90%以上は1%ごと (視程<1kmは90%未満ではほとんど無い)
 
 
 def _label(bins, fmt="{:g}", single=False):
