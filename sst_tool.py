@@ -564,13 +564,14 @@ def _label(bins, fmt="{:g}", single=False):
 
 
 def fog_table(d, min_n=30):
-    """気温-海面水温(dT) × 相対湿度 の階級ごとの霧発生率(%)と観測数。"""
+    """気温-海面水温(dT) × 相対湿度 の階級ごとの (霧発生率% [観測数min_n未満はNaN], 該当した回数, うち霧の回数)。"""
     d = d.dropna(subset=["dT", "RH", "fog"]).copy()
     d["dTc"] = pd.cut(d["dT"], DT_BINS, right=False, labels=_label(DT_BINS))
     d["RHc"] = pd.cut(d["RH"], RH_BINS, right=False, labels=_label(RH_BINS, single=True))
     n = d.pivot_table(index="RHc", columns="dTc", values="fog", aggfunc="count", observed=False).fillna(0)
     p = d.pivot_table(index="RHc", columns="dTc", values="fog", aggfunc="mean", observed=False) * 100
-    return p.where(n >= min_n), n
+    k = d.pivot_table(index="RHc", columns="dTc", values="fog", aggfunc="sum", observed=False).fillna(0)
+    return p.where(n >= min_n), n, k
 
 
 def fog_conditions(v, rh_min=(90, 95, 97, 99, 100), dt_max=(1, 2, 3, 5, np.inf)):
@@ -590,16 +591,26 @@ def fog_conditions(v, rh_min=(90, 95, 97, 99, 100), dt_max=(1, 2, 3, 5, np.inf))
     return f(rate), f(cover), f(num)
 
 
-def fog_heat(ax, p, n, title, vmax=None):
-    im = ax.imshow(p.values.astype(float), origin="lower", aspect="auto", cmap="magma_r", vmin=0,
-                   vmax=vmax or max(10, np.nanmax(p.values) if np.isfinite(p.values).any() else 10))
+FOG_NOTE = "マス内の数字: 上=霧が出た回数 / 下=該当した回数 (分子/分母)。色=発生率。灰色=該当回数が少なく発生率を出さない"
+
+
+def fog_heat(ax, p, n, k, title, vmax=None):
+    """マスの色=霧の発生率。数字は 上=霧が出た回数 / 下=その階級に該当した回数 (分子/分母)。
+    該当回数が少なくて発生率を出さないマスは灰色で、回数だけ薄く表示する。"""
+    from matplotlib.colors import ListedColormap
+    ax.imshow(np.where(n.values > 0, 1.0, np.nan), origin="lower", aspect="auto",
+              cmap=ListedColormap(["#e4e4e4"]), vmin=0, vmax=1)
+    vmax = vmax or max(10, np.nanmax(p.values) if np.isfinite(p.values).any() else 10)
+    im = ax.imshow(p.values.astype(float), origin="lower", aspect="auto", cmap="magma_r", vmin=0, vmax=vmax)
     ax.set_xticks(range(p.shape[1]), p.columns, rotation=60, fontsize=7)
     ax.set_yticks(range(p.shape[0]), p.index, fontsize=7)
     for i in range(p.shape[0]):
         for j in range(p.shape[1]):
-            if np.isfinite(p.values[i, j]):
-                ax.text(j, i, f"{p.values[i, j]:.0f}", ha="center", va="center", fontsize=6,
-                        color="w" if p.values[i, j] > 40 else "k")
+            if n.values[i, j] > 0:
+                big = np.isfinite(p.values[i, j])
+                ax.text(j, i, f"{int(k.values[i, j])}\n{int(n.values[i, j])}", ha="center", va="center",
+                        fontsize=5.5, linespacing=1.0,
+                        color=("w" if p.values[i, j] > 0.55 * vmax else "k") if big else "#888")
     ax.set(title=title, xlabel="気温 − 海面水温 (℃)", ylabel="相対湿度 (%)")
     return im
 
@@ -620,12 +631,13 @@ def fog_station_figure(v):
     """官署別の 霧の発生率(相対湿度 × 気温−海面水温) の図 (Figure) を返す。"""
     stations = [s for s in STATION_SST if s in set(v["station"])]
     ncol = (len(stations) + 1) // 2
-    tabs = {name: fog_table(v[v["station"] == name], min_n=15)[0] for name in stations}
-    vmax = max(10, max(np.nanmax(t.values) for t in tabs.values() if np.isfinite(t.values).any()))
+    tabs = {name: fog_table(v[v["station"] == name], min_n=15) for name in stations}
+    vmax = max(10, max(np.nanmax(t[0].values) for t in tabs.values() if np.isfinite(t[0].values).any()))
     fig, axs = plt.subplots(2, ncol, figsize=(4.2 * ncol + 1, 8), squeeze=False)
     for ax, name in zip(axs.ravel(), stations):  # 全官署で同じ色スケール
-        im = fog_heat(ax, tabs[name], None, f"{name} (海域: {STATION_SST[name]})", vmax=vmax)
-    fig.tight_layout(rect=(0, 0, .93, 1))
+        im = fog_heat(ax, *tabs[name], f"{name} (海域: {STATION_SST[name]})", vmax=vmax)
+    fig.tight_layout(rect=(0, .03, .93, 1))
+    fig.text(.01, .005, FOG_NOTE, fontsize=9)
     cax = fig.add_axes([.945, .2, .015, .6])
     fig.colorbar(im, cax=cax, label="霧(視程<1km)の発生率 %")
     return fig
@@ -650,7 +662,7 @@ def cmd_fog(df, args):
     summ.index = [f"{int(q * 100)}%点" for q in qs]
     print("\n[分布] 霧の時とそうでない時の 気温-海面水温(dT) と 相対湿度 (パーセント点)")
     print(summ.to_string())
-    p, n = fog_table(v)
+    p, n, k = fog_table(v)
     print(f"\n[霧の発生率%] 縦=相対湿度, 横=気温-海面水温(℃)  (観測数30未満は空欄)")
     print(p.to_string(na_rep="-"))
     rate, cover, num = fog_conditions(v)
@@ -665,6 +677,7 @@ def cmd_fog(df, args):
     summ.to_csv(os.path.join(OUT, "fog_distribution.csv"), encoding="utf-8-sig")
     p.to_csv(os.path.join(OUT, "fog_probability_dT_RH.csv"), encoding="utf-8-sig")
     n.to_csv(os.path.join(OUT, "fog_count_dT_RH.csv"), encoding="utf-8-sig")
+    k.to_csv(os.path.join(OUT, "fog_fogcount_dT_RH.csv"), encoding="utf-8-sig")
 
     # --- 図 ---
     fig, axs = plt.subplots(1, 2, figsize=(13, 5))
@@ -680,9 +693,10 @@ def cmd_fog(df, args):
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(10, 6.5))
-    im = fog_heat(ax, p, n, "霧(視程<1km)の発生率 % : 相対湿度 × (気温−海面水温)  [全官署]")
+    im = fog_heat(ax, p, n, k, "霧(視程<1km)の発生率 % : 相対湿度 × (気温−海面水温)  [全官署]")
     fig.colorbar(im, ax=ax, label="霧の発生率 %")
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, .03, 1, 1))
+    fig.text(.01, .005, FOG_NOTE, fontsize=8)
     fig.savefig(os.path.join(OUT, "fog_probability.png"), dpi=120)
     plt.close(fig)
 
