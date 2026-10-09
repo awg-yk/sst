@@ -167,7 +167,7 @@ def fog_table(d):
 
 
 FOG_NOTE = (f"マス内の数字: 上=視程<1kmだった回数 / 下=該当した回数。色=視程<1kmの出現率 (上÷下)。"
-            f"灰色=視程<1kmが0回、または該当した回数が{MIN_N}回未満。空白=該当なし。\n目盛りはマスの境目 (例: 湿度85と90の間のマスは85%以上90%未満。<は未満、+は以上)")
+            f"灰色=視程<1kmが0回、または該当した回数が{MIN_N}回未満。空白=該当なし。\n目盛りはマスの境目 (例: 湿度85と90の間のマスは85%以上90%未満)")
 
 
 def fog_rate(n, k):
@@ -199,8 +199,12 @@ def fog_heat(ax, n, k, title, norm, cmap):
     dt, rh = DT_BINS[1:-1], RH_BINS[1:-1]
     ax.set_xticks(range(1, ncol), [f"{v:g}" for v in dt], fontsize=7)
     ax.set_yticks(range(1, nrow), [f"{v:g}" for v in rh], fontsize=7)
-    ax.set_xticks([.28, ncol - .28], [f"<{dt[0]:g}", f"{dt[-1]:g}+"], minor=True, fontsize=7)
-    ax.set_yticks([.2, nrow - .2], [f"<{rh[0]:g}", f"{rh[-1]:g}+"], minor=True, fontsize=7)
+    ax.set_xticks([.05, ncol - .05], [f"{dt[0]:g}\n未満", f"{dt[-1]:g}\n以上"], minor=True, fontsize=7)
+    ax.set_yticks([.05, nrow - .05], [f"{rh[0]:g}\n未満", f"{rh[-1]:g}\n以上"], minor=True, fontsize=7)
+    for t, ha in zip(ax.get_xticklabels(minor=True), ["left", "right"]):
+        t.set_ha(ha)
+    for t, va in zip(ax.get_yticklabels(minor=True), ["bottom", "top"]):
+        t.set_va(va)
     ax.tick_params(axis="x", which="minor", length=3.5, width=0)
     ax.tick_params(axis="y", which="minor", length=3.5, width=0)
     for i in range(nrow):
