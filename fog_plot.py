@@ -135,7 +135,7 @@ def fog_dataset(sst, coast):
     return c
 
 
-DT_BINS = [-np.inf, -6, -4, -3, -2, -1, 0, 1, 2, 3, 4, 6, np.inf]
+DT_BINS = [-np.inf] + list(range(-5, 6)) + [np.inf]  # 気温−海面水温は1℃刻み (両端だけ -5未満 と 5以上)
 
 
 RH_BINS = [-np.inf, 80, 85, 90, 95, np.inf]  # 湿度は 80%未満、80〜85、85〜90、90〜95、95以上 (湿度計の誤差が5%程度なので100%も95以上に含める)
