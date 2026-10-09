@@ -1,6 +1,6 @@
 """視程が1km未満だった時の、年(横軸) × 温度(縦軸, 1℃ごと) のヒートマップ。夏季 (6〜8月) だけ。
 上段: そのときの気温。 下段: そのときの海面水温 (官署に対応する海域)。
-fog_plot.py と fog_plot_year_temp.py と同じフォルダに置いて実行します。
+fog_plot.py と同じフォルダに置いて実行します (fog_plot.py の読み込み処理を使います)。
 
     python fog_plot_year_temp_low.py                       # 沿岸10官署を1枚ずつ画面に表示
     python fog_plot_year_temp_low.py --stations 宮古 酒田   # 官署を指定
@@ -17,7 +17,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import fog_plot as fp
-import fog_plot_year_temp as yt
 
 
 def low_table(values, years, lo, hi):
@@ -26,6 +25,19 @@ def low_table(values, years, lo, hi):
     cnt = (v.groupby([np.floor(v.values).astype(int), v.index.year]).size().unstack()
            .reindex(index=range(lo, hi + 1), columns=years).fillna(0))
     return cnt
+
+
+def heat(ax, tab, title, vmax, cmap, ylabel):
+    """色=回数。0回のマスは空白。縦のマスの辺が整数℃の位置に来る。"""
+    years, lo, hi = list(tab.columns), tab.index.min(), tab.index.max()
+    im = ax.imshow(np.where(tab.values > 0, tab.values, np.nan), origin="lower", aspect="auto", cmap=cmap, vmin=0, vmax=vmax,
+                   extent=(years[0] - .5, years[-1] + .5, lo, hi + 1))
+    ax.set_xticks(years[::2])
+    ax.set_yticks(range(lo, hi + 2, 2))
+    ax.tick_params(labelsize=7)
+    ax.tick_params(axis="x", rotation=90)
+    ax.set(title=title, ylabel=ylabel)
+    return im
 
 
 def main():
@@ -54,8 +66,8 @@ def main():
     for s in names:
         fig, axs = plt.subplots(2, 1, figsize=(11, 9), sharex=True)
         n = int(tabs[s][0].values.sum())
-        ims = [yt.heat(axs[0], tabs[s][0], f"{s}  視程<1kmだった時の気温 (6〜8月, 計{n}回)", vmax[0], cmap, "気温 (℃)"),
-               yt.heat(axs[1], tabs[s][1], f"視程<1kmだった時の海面水温 (海域: {fp.STATION_SST[s]})", vmax[1], cmap, "海面水温 (℃)")]
+        ims = [heat(axs[0], tabs[s][0], f"{s}  視程<1kmだった時の気温 (6〜8月, 計{n}回)", vmax[0], cmap, "気温 (℃)"),
+               heat(axs[1], tabs[s][1], f"視程<1kmだった時の海面水温 (海域: {fp.STATION_SST[s]})", vmax[1], cmap, "海面水温 (℃)")]
         axs[1].set_xlabel("年")
         fig.tight_layout(rect=(0, .03, .9, 1))
         for ax, im in zip(axs, ims):
