@@ -6,7 +6,7 @@
     python fog_plot_each.py --from-year 2014   # この年以降だけ使う (fog_plot.py と同じオプション)
 
 図: 相対湿度 × (気温−海面水温) の階級ごとの、視程<1kmだった回数 (色と、マス内の数字 上=視程<1kmだった回数 / 下=該当した回数)。
-    色の濃さは、その官署の中の最大を基準にしています。
+    色の濃さは fog_plot.py の10官署並べた図と同じ基準 (全官署で共通。最大の官署に合わせる) です。
 """
 import argparse
 import os
@@ -17,10 +17,16 @@ from matplotlib.colors import Normalize
 import fog_plot as fp
 
 
-def station_figure(v, name):
+def common_norm(v):
+    """fog_plot.py の図と同じ、全官署で共通の色の基準"""
+    stations = [s for s in fp.STATION_SST if s in set(v["station"])]
+    top = max(fp.fog_table(v[v["station"] == s])[1].values.max() for s in stations)
+    return Normalize(0, max(1, top))
+
+
+def station_figure(v, name, norm):
     """1官署の図 (Figure)"""
     n, k = fp.fog_table(v[v["station"] == name])
-    norm = Normalize(0, max(1, k.values.max()))
     fig, ax = plt.subplots(figsize=(9, 7))
     sm = fp.fog_heat(ax, n, k, f"{name} (海域: {fp.STATION_SST[name]})", norm, plt.get_cmap("magma_r"))
     fig.colorbar(sm, ax=ax).set_label("視程<1kmだった回数")
@@ -42,11 +48,12 @@ def main():
     fp.setup_font()
     _, v = fp.fog_valid(fp.summer(fp.load(a.dir)), a)
     names = a.stations or [s for s in fp.STATION_SST if s in set(v["station"])]
+    norm = common_norm(v)
     for name in names:
         if name not in set(v["station"]):
             print("データがありません:", name)
             continue
-        fig = station_figure(v, name)
+        fig = station_figure(v, name, norm)
         if a.save_dir:
             os.makedirs(a.save_dir, exist_ok=True)
             path = os.path.join(a.save_dir, f"fog_{name}.png")
