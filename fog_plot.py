@@ -167,7 +167,7 @@ def fog_table(d):
 
 
 FOG_NOTE = (f"マス内の数字: 上=視程<1kmだった回数 / 下=該当した回数。色=視程<1kmの出現率 (上÷下)。"
-            f"灰色=視程<1kmが0回、または該当した回数が{MIN_N}回未満。空白=該当なし")
+            f"灰色=視程<1kmが0回、または該当した回数が{MIN_N}回未満。空白=該当なし。\n目盛りはマスの境目 (例: 湿度85と90の間のマスは85%以上90%未満)")
 
 
 def fog_rate(n, k):
@@ -190,17 +190,24 @@ def fog_heat(ax, n, k, title, norm, cmap):
     from matplotlib.cm import ScalarMappable
     nv, kv = n.values, k.values
     rate = fog_rate(n, k).values
-    ax.imshow(np.where(nv > 0, 1.0, np.nan), origin="lower", aspect="auto",
+    nrow, ncol = nv.shape
+    ext = (0, ncol, 0, nrow)    # マスの辺が 0,1,2,... に来る。目盛りの数字はマスの境目 (区間の端の値)
+    ax.imshow(np.where(nv > 0, 1.0, np.nan), origin="lower", extent=ext, aspect="auto",
               cmap=ListedColormap(["#e4e4e4"]), vmin=0, vmax=1)
-    ax.imshow(rate, origin="lower", aspect="auto", cmap=cmap, norm=norm)
-    ax.set_xticks(range(n.shape[1]), n.columns, rotation=60, fontsize=7)
-    ax.set_yticks(range(n.shape[0]), n.index, fontsize=7)
-    for i in range(n.shape[0]):
-        for j in range(n.shape[1]):
+    ax.imshow(rate, origin="lower", extent=ext, aspect="auto", cmap=cmap, norm=norm)
+    # 目盛り: マスの境目に区間の端の値を書く。両端のマスは中央に「未満」「以上」を書く
+    dt, rh = DT_BINS[1:-1], RH_BINS[1:-1]
+    ax.set_xticks(range(1, ncol), [f"{v:g}" for v in dt], fontsize=7)
+    ax.set_yticks(range(1, nrow), [f"{v:g}" for v in rh], fontsize=7)
+    ax.set_xticks([.5, ncol - .5], [f"{dt[0]:g}未満", f"{dt[-1]:g}以上"], minor=True, fontsize=6.5, rotation=45)
+    ax.set_yticks([.5, nrow - .5], [f"{rh[0]:g}未満", f"{rh[-1]:g}以上"], minor=True, fontsize=6.5)
+    ax.tick_params(axis="both", which="minor", length=0)
+    for i in range(nrow):
+        for j in range(ncol):
             if nv[i, j] > 0:
                 colored = np.isfinite(rate[i, j])
                 dark = colored and norm(rate[i, j]) > 0.55
-                ax.text(j, i, f"{int(kv[i, j])}\n{int(nv[i, j])}", ha="center", va="center",
+                ax.text(j + .5, i + .5, f"{int(kv[i, j])}\n{int(nv[i, j])}", ha="center", va="center",
                         fontsize=6.5, linespacing=1.0, color="w" if dark else ("k" if colored else "#888"))
     ax.set(title=title, xlabel="気温 − 海面水温 (℃)", ylabel="相対湿度 (%)")
     return ScalarMappable(norm=norm, cmap=cmap)
