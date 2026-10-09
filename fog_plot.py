@@ -199,8 +199,8 @@ def fog_heat(ax, n, k, title, norm, cmap):
     dt, rh = DT_BINS[1:-1], RH_BINS[1:-1]
     ax.set_xticks(range(1, ncol), [f"{v:g}" for v in dt], fontsize=7)
     ax.set_yticks(range(1, nrow), [f"{v:g}" for v in rh], fontsize=7)
-    ax.set_xticks([.5, ncol - .5], [f"<{dt[0]:g}", f"{dt[-1]:g}+"], minor=True, fontsize=7)
-    ax.set_yticks([.5, nrow - .5], [f"<{rh[0]:g}", f"{rh[-1]:g}+"], minor=True, fontsize=7)
+    ax.set_xticks([.28, ncol - .28], [f"<{dt[0]:g}", f"{dt[-1]:g}+"], minor=True, fontsize=7)
+    ax.set_yticks([.2, nrow - .2], [f"<{rh[0]:g}", f"{rh[-1]:g}+"], minor=True, fontsize=7)
     ax.tick_params(axis="x", which="minor", length=3.5, width=0)
     ax.tick_params(axis="y", which="minor", length=3.5, width=0)
     for i in range(nrow):
