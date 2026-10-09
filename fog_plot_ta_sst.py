@@ -9,6 +9,7 @@ fog_plot.py と同じフォルダに置いて実行します (fog_plot.py の読
 色: 視程<1kmの出現率(%) = 視程<1kmだった回数 ÷ 該当した回数。全官署で同じ色の基準。
 灰色: 視程<1kmが0回、または該当した回数が40回未満。空白: 該当なし。
 破線: 気温 = 海面水温。 マス内の数字 (--each のとき): 上=視程<1kmだった回数 / 下=該当した回数。
+区切り: 1℃ごとで、目盛りの数字はマスの境目です。例: 気温16と17の間のマスは「16.0℃以上、17.0℃未満」(16.9℃もこのマス)。
 """
 import argparse
 import os
@@ -46,23 +47,24 @@ def heat(ax, n, k, title, norm, cmap, numbers):
     lo, hi = n.index.min(), n.index.max()
     nv, kv = n.values, k.values
     rate = fp.fog_rate(n, k).values
-    ext = (lo - .5, hi + .5, lo - .5, hi + .5)
+    # マスの辺が整数℃の位置に来るようにする。lo のマスは lo℃以上 lo+1℃未満で、目盛りの数字はマスの境目
+    ext = (lo, hi + 1, lo, hi + 1)
     ax.imshow(np.where(nv > 0, 1.0, np.nan), origin="lower", extent=ext, aspect="equal",
               cmap=ListedColormap(["#e4e4e4"]), vmin=0, vmax=1)
     ax.imshow(rate, origin="lower", extent=ext, aspect="equal", cmap=cmap, norm=norm)
-    ax.plot([lo - .5, hi + .5], [lo - .5, hi + .5], "k--", lw=.8, alpha=.6)  # 気温 = 海面水温
+    ax.plot([lo, hi + 1], [lo, hi + 1], "k--", lw=.8, alpha=.6)  # 気温 = 海面水温
     if numbers:
         for i in range(nv.shape[0]):
             for j in range(nv.shape[1]):
                 if nv[i, j] > 0:
                     colored = np.isfinite(rate[i, j])
                     dark = colored and norm(rate[i, j]) > 0.55
-                    ax.text(lo + j, lo + i, f"{int(kv[i, j])}\n{int(nv[i, j])}", ha="center", va="center",
+                    ax.text(lo + j + .5, lo + i + .5, f"{int(kv[i, j])}\n{int(nv[i, j])}", ha="center", va="center",
                             fontsize=5.5, linespacing=1.0, color="w" if dark else ("k" if colored else "#888"))
-    ax.set_xlim(lo - .5, hi + .5)
-    ax.set_ylim(lo - .5, hi + .5)
-    ax.set_xticks(range(lo, hi + 1, 2 if numbers else 5))
-    ax.set_yticks(range(lo, hi + 1, 2 if numbers else 5))
+    ax.set_xlim(lo, hi + 1)
+    ax.set_ylim(lo, hi + 1)
+    ax.set_xticks(range(lo, hi + 2, 1 if numbers else 5))
+    ax.set_yticks(range(lo, hi + 2, 1 if numbers else 5))
     ax.tick_params(labelsize=7)
     ax.set(title=title, xlabel="気温 (℃)", ylabel="海面水温 (℃)")
     return ScalarMappable(norm=norm, cmap=cmap)
@@ -89,7 +91,7 @@ def main():
     cmap = plt.get_cmap("magma_r")
     names = [s for s in (a.stations or allst) if s in tabs]
     title = lambda s: f"{s} (海域: {fp.STATION_SST[s]})"
-    note = "色=視程<1kmの出現率 (上÷下)。灰色=視程<1kmが0回、または該当した回数が40回未満。空白=該当なし。破線=気温と海面水温が等しい"
+    note = "色=視程<1kmの出現率 (上÷下)。灰色=視程<1kmが0回、または該当した回数が40回未満。空白=該当なし。\n破線=気温と海面水温が等しい。目盛りはマスの境目 (各マスは例えば16.0℃以上17.0℃未満)"
 
     if a.each:
         for s in names:
