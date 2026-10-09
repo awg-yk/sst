@@ -5,14 +5,13 @@
     python fog_plot_each.py --save-dir out     # 画面に出さず、官署ごとのPNGを out/ に保存
     python fog_plot_each.py --from-year 2014   # この年以降だけ使う (fog_plot.py と同じオプション)
 
-図: 相対湿度 × (気温−海面水温) の階級ごとの、視程<1kmだった回数 (色と、マス内の数字 上=視程<1kmだった回数 / 下=該当した回数)。
+図: 相対湿度 × (気温−海面水温) の階級ごとの、視程<1kmの出現率 (色)。マス内の数字は 上=視程<1kmだった回数 / 下=該当した回数。
     色の濃さは fog_plot.py の10官署並べた図と同じ基準 (全官署で共通。最大の官署に合わせる) です。
 """
 import argparse
 import os
 
 import matplotlib.pyplot as plt
-from matplotlib.colors import Normalize
 
 import fog_plot as fp
 
@@ -20,16 +19,15 @@ import fog_plot as fp
 def common_norm(v):
     """fog_plot.py の図と同じ、全官署で共通の色の基準"""
     stations = [s for s in fp.STATION_SST if s in set(v["station"])]
-    top = max(fp.fog_table(v[v["station"] == s])[1].values.max() for s in stations)
-    return Normalize(0, max(1, top))
+    return fp.fog_norm([fp.fog_table(v[v["station"] == s]) for s in stations])
 
 
 def station_figure(v, name, norm):
     """1官署の図 (Figure)"""
     n, k = fp.fog_table(v[v["station"] == name])
-    fig, ax = plt.subplots(figsize=(9, 7))
+    fig, ax = plt.subplots(figsize=(8, 6.5))
     sm = fp.fog_heat(ax, n, k, f"{name} (海域: {fp.STATION_SST[name]})", norm, plt.get_cmap("magma_r"))
-    fig.colorbar(sm, ax=ax).set_label("視程<1kmだった回数")
+    fig.colorbar(sm, ax=ax).set_label("視程<1kmの出現率 (%)")
     fig.text(.01, .005, fp.FOG_NOTE, fontsize=7)
     fig.tight_layout(rect=(0, .02, 1, 1))
     return fig

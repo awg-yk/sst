@@ -138,7 +138,8 @@ def fog_dataset(sst, coast):
 DT_BINS = [-np.inf, -6, -4, -3, -2, -1, 0, 1, 2, 3, 4, 6, np.inf]
 
 
-RH_BINS = [-np.inf] + list(range(90, 102))  # 湿度90%未満は1階級、90%以上は1%ごと (視程<1kmは90%未満ではほとんど無い)
+RH_BINS = [-np.inf, 80, 85, 90, 95, 100, 101]  # 湿度は 80%未満、80〜85、85〜90、90〜95、95〜100、100 (100%ちょうどは別の階級)
+MIN_N = 40  # 該当した回数がこれ未満の階級は、出現率が不安定なので灰色にする
 
 
 def _label(bins, fmt="{:g}", single=False):
@@ -165,25 +166,42 @@ def fog_table(d):
     return n, k.reindex(index=n.index, columns=n.columns).fillna(0)
 
 
-FOG_NOTE = "マス内の数字: 上=視程<1kmだった回数 / 下=該当した回数。色=視程<1kmだった回数。灰色=視程<1kmは0回、空白=該当なし"
+FOG_NOTE = (f"マス内の数字: 上=視程<1kmだった回数 / 下=該当した回数。色=視程<1kmの出現率 (上÷下)。"
+            f"灰色=視程<1kmが0回、または該当した回数が{MIN_N}回未満。空白=該当なし")
+
+
+def fog_rate(n, k):
+    """階級ごとの出現率 (%) = 視程<1kmだった回数 ÷ 該当した回数。
+    該当した回数が MIN_N 未満、または視程<1kmが0回の階級は NaN (図では灰色)。"""
+    rate = k / n.where(n > 0) * 100
+    return rate.where((n >= MIN_N) & (k > 0))
+
+
+def fog_norm(tables):
+    """全官署で共通の色の基準 (出現率の最大に合わせる)。tables: [(n, k), ...]"""
+    from matplotlib.colors import Normalize
+    top = max([fog_rate(n, k).values[np.isfinite(fog_rate(n, k).values)].max(initial=0) for n, k in tables] + [1])
+    return Normalize(0, max(10.0, float(top)))
 
 
 def fog_heat(ax, n, k, title, norm, cmap):
-    """色=視程<1kmだった回数。0回のマスは灰色、該当する時刻が無いマスは空白。"""
+    """色=視程<1kmの出現率(%)。灰色=視程<1kmが0回、または該当した回数が MIN_N 未満。空白=該当なし。"""
     from matplotlib.colors import ListedColormap
     from matplotlib.cm import ScalarMappable
     nv, kv = n.values, k.values
+    rate = fog_rate(n, k).values
     ax.imshow(np.where(nv > 0, 1.0, np.nan), origin="lower", aspect="auto",
               cmap=ListedColormap(["#e4e4e4"]), vmin=0, vmax=1)
-    ax.imshow(np.where(kv > 0, kv, np.nan), origin="lower", aspect="auto", cmap=cmap, norm=norm)
+    ax.imshow(rate, origin="lower", aspect="auto", cmap=cmap, norm=norm)
     ax.set_xticks(range(n.shape[1]), n.columns, rotation=60, fontsize=7)
     ax.set_yticks(range(n.shape[0]), n.index, fontsize=7)
     for i in range(n.shape[0]):
         for j in range(n.shape[1]):
             if nv[i, j] > 0:
-                dark = kv[i, j] > 0 and norm(kv[i, j]) > 0.55
+                colored = np.isfinite(rate[i, j])
+                dark = colored and norm(rate[i, j]) > 0.55
                 ax.text(j, i, f"{int(kv[i, j])}\n{int(nv[i, j])}", ha="center", va="center",
-                        fontsize=5.5, linespacing=1.0, color="w" if dark else ("#888" if kv[i, j] == 0 else "k"))
+                        fontsize=6.5, linespacing=1.0, color="w" if dark else ("k" if colored else "#888"))
     ax.set(title=title, xlabel="気温 − 海面水温 (℃)", ylabel="相対湿度 (%)")
     return ScalarMappable(norm=norm, cmap=cmap)
 
@@ -219,13 +237,12 @@ def fog_valid(df, args):
 
 
 def fog_station_figure(v):
-    """官署別の 相対湿度 × 気温−海面水温 の図 (Figure) を返す。色=視程<1kmだった回数 (全官署で同じ色の基準)。"""
-    from matplotlib.colors import Normalize
+    """官署別の 相対湿度 × 気温−海面水温 の図 (Figure) を返す。色=視程<1kmの出現率 (全官署で同じ色の基準)。"""
     stations = [s for s in STATION_SST if s in set(v["station"])]
     ncol = (len(stations) + 1) // 2
     start = v.attrs.get("start", {})
     tabs = {name: fog_table(v[v["station"] == name]) for name in stations}
-    norm = Normalize(0, max(1, max(t[1].values.max() for t in tabs.values())))
+    norm = fog_norm(list(tabs.values()))
     cmap = plt.get_cmap("magma_r")
     fig, axs = plt.subplots(2, ncol, figsize=(4.2 * ncol + 1, 8), squeeze=False)
     for ax, name in zip(axs.ravel(), stations):
@@ -234,7 +251,7 @@ def fog_station_figure(v):
     fig.tight_layout(rect=(0, .03, .93, 1))
     fig.text(.01, .005, FOG_NOTE, fontsize=9)
     cax = fig.add_axes([.945, .2, .015, .6])
-    fig.colorbar(im, cax=cax).set_label("視程<1kmだった回数", fontsize=9)
+    fig.colorbar(im, cax=cax).set_label("視程<1kmの出現率 (%)", fontsize=9)
     return fig
 
 
