@@ -260,8 +260,8 @@ def fog_station_figure(v):
     for ax, name in zip(axs.ravel(), stations):
         im = fog_heat(ax, *tabs[name], f"{name} (海域: {STATION_SST[name]}"
                       + (f", {start[name]}年〜" if start.get(name) else "") + ")", norm, cmap)
-    fig.tight_layout(rect=(0, .03, .93, 1))
-    fig.text(.01, .005, FOG_NOTE, fontsize=9)
+    fig.tight_layout(rect=(0, .06, .93, 1))
+    fig.text(.01, .004, FOG_NOTE, fontsize=9)
     cax = fig.add_axes([.945, .2, .015, .6])
     fig.colorbar(im, cax=cax).set_label("視程<1kmの出現率 (%)", fontsize=9)
     return fig

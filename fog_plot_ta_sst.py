@@ -98,8 +98,8 @@ def main():
             fig, ax = plt.subplots(figsize=(10, 8.5))
             sm = heat(ax, *tabs[s], title(s), norm, cmap, numbers=True)
             fig.colorbar(sm, ax=ax, shrink=.85).set_label("視程<1kmの出現率 (%)")
-            fig.text(.01, .005, "マス内の数字: 上=視程<1kmだった回数 / 下=該当した回数。" + note, fontsize=7)
-            fig.tight_layout(rect=(0, .02, 1, 1))
+            fig.text(.01, .004, "マス内の数字: 上=視程<1kmだった回数 / 下=該当した回数。" + note, fontsize=7)
+            fig.tight_layout(rect=(0, .05, 1, 1))
             if a.save_dir:
                 os.makedirs(a.save_dir, exist_ok=True)
                 path = os.path.join(a.save_dir, f"fog_ta_sst_{s}.png")
@@ -116,8 +116,8 @@ def main():
         sm = heat(ax, *tabs[s], title(s), norm, cmap, numbers=False)
     for ax in axs.ravel()[len(names):]:
         ax.axis("off")
-    fig.tight_layout(rect=(0, .03, .93, 1))
-    fig.text(.01, .005, note, fontsize=9)
+    fig.tight_layout(rect=(0, .06, .93, 1))
+    fig.text(.01, .004, note, fontsize=9)
     cax = fig.add_axes([.945, .2, .015, .6])
     fig.colorbar(sm, cax=cax).set_label("視程<1kmの出現率 (%)", fontsize=9)
     plt.show()

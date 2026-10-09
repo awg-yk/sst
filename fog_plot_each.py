@@ -28,8 +28,8 @@ def station_figure(v, name, norm):
     fig, ax = plt.subplots(figsize=(8, 6.5))
     sm = fp.fog_heat(ax, n, k, f"{name} (海域: {fp.STATION_SST[name]})", norm, plt.get_cmap("magma_r"))
     fig.colorbar(sm, ax=ax).set_label("視程<1kmの出現率 (%)")
-    fig.text(.01, .005, fp.FOG_NOTE, fontsize=7)
-    fig.tight_layout(rect=(0, .02, 1, 1))
+    fig.text(.01, .004, fp.FOG_NOTE, fontsize=7)
+    fig.tight_layout(rect=(0, .05, 1, 1))
     return fig
 
 
