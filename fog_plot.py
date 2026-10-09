@@ -201,8 +201,8 @@ def fog_heat(ax, n, k, title, norm, cmap):
     ax.set_yticks(range(1, nrow), [f"{v:g}" for v in rh], fontsize=7)
     ax.set_xticks([.5, ncol - .5], [f"<{dt[0]:g}", f"{dt[-1]:g}+"], minor=True, fontsize=7)
     ax.set_yticks([.5, nrow - .5], [f"<{rh[0]:g}", f"{rh[-1]:g}+"], minor=True, fontsize=7)
-    ax.tick_params(axis="x", which="minor", length=0, pad=12)   # 境目の数字より一段外側
-    ax.tick_params(axis="y", which="minor", length=0, pad=22)
+    ax.tick_params(axis="x", which="minor", length=3.5, width=0)
+    ax.tick_params(axis="y", which="minor", length=3.5, width=0)
     for i in range(nrow):
         for j in range(ncol):
             if nv[i, j] > 0:
