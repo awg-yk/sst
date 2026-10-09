@@ -13,6 +13,7 @@ python fog_plot.py --hourly-only     # 官署ごとに、視程が毎時にな�
 - `fog_plot_ta_sst.py`: 気温(横)×海面水温(縦)を1℃ごとに区切って、視程<1kmの出現率を示す図(相対湿度は使わない。`--each` で官署ごとに1枚ずつ)。`fog_plot.py` と同じフォルダに置く。
 - `fog_plot_year_temp.py`: 年(横)×温度(縦, 1℃ごと)のヒートマップ。夏季(6〜8月)の気温と海面水温が毎年どの温度にどれだけあったか(その年に占める割合)を官署ごとに示す。`fog_plot.py` と同じフォルダに置く。
 - `fog_plot_ta_sst_low.py`: 視程<1kmだった時の気温(横)×海面水温(縦)の2次元ヒートマップ(色=その回数)。`fog_plot.py` と `fog_plot_ta_sst.py` と同じフォルダに置く。
+- `fog_plot_year_temp_low.py`: 視程<1kmだった時の年(横)×温度(縦, 1℃ごと)のヒートマップ(上=気温、下=海面水温、色=その回数)。`fog_plot.py` と `fog_plot_year_temp.py` と同じフォルダに置く。
 - `fog_plot_each.py`: 同じ図を官署ごとに1枚ずつ表示します(`fog_plot.py` と同じフォルダに置く。`--save-dir out` でPNG保存)。
 - `fog_plot.py` 1ファイルで動きます。ファイルには保存せず、官署別の図を画面に表示します。
 - データ(`fog_plot.py` と同じフォルダ):
