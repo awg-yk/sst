@@ -10,6 +10,7 @@ python fog_plot.py --from-year 2014  # この年以降だけに絞る
 python fog_plot.py --hourly-only     # 官署ごとに、視程が毎時になった年以降だけ
 ```
 
+- `fog_plot_ta_sst.py`: 気温(横)×海面水温(縦)を1℃ごとに区切って、視程<1kmの出現率を示す図(相対湿度は使わない。`--each` で官署ごとに1枚ずつ)。`fog_plot.py` と同じフォルダに置く。
 - `fog_plot_each.py`: 同じ図を官署ごとに1枚ずつ表示します(`fog_plot.py` と同じフォルダに置く。`--save-dir out` でPNG保存)。
 - `fog_plot.py` 1ファイルで動きます。ファイルには保存せず、官署別の図を画面に表示します。
 - データ(`fog_plot.py` と同じフォルダ):
