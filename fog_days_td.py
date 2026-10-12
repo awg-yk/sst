@@ -83,6 +83,13 @@ def main():
         ax.set_ylabel("霧日数 (日)")
         ax.set_xlim(1981, 2027)
         ax.grid(alpha=.3)
+    # 縦軸の範囲を全官署で同じにする (左: 霧日数 0〜最大、右: 海面水温−露点温度 の全官署の最小〜最大。右は上ほど小さい向き)
+    ymax = kiri[kiri.station.isin(stations)].kiri.max() * 1.05
+    gg = gap[gap.index.get_level_values(0).isin(stations)]
+    pad = (gg.max() - gg.min()) * .05
+    for ax, ax2 in zip(axs.ravel(), twins):
+        ax.set_ylim(0, ymax)
+        ax2.set_ylim(gg.max() + pad, gg.min() - pad)
     h1, l1 = axs.ravel()[0].get_legend_handles_labels()
     h2, l2 = twins[0].get_legend_handles_labels()
     axs.ravel()[0].legend(h1 + h2, l1 + l2, loc="upper left", fontsize=8, ncol=3)
