@@ -1,5 +1,5 @@
-"""夏季 (6〜8月) の露点温度と海面水温の年ごとの平均を、官署ごとに折れ線で示す図。
-1枚目: 露点温度と海面水温の年平均。 2枚目: 「露点温度 − 海面水温」の年平均 (霧の出やすさに関わる、空気が海面で冷やされる余地)。
+"""夏季 (6〜8月) の気温・露点温度・海面水温の年ごとの平均を、官署ごとに折れ線で示す図。
+1枚目: 気温・露点温度・海面水温の年平均。 2枚目: 「露点温度 − 海面水温」の年平均 (霧の出やすさに関わる、空気が海面で冷やされる余地)。
 fog_plot.py と fog_plot_td_sst.py と同じフォルダに置いて実行します (露点温度は「東北地方沿岸気象官署時別値露点温度」フォルダ、1984年〜)。
 
     python fog_plot_td_year.py                  # 2枚の図を画面に順に表示
@@ -21,11 +21,11 @@ import fog_plot_td_sst as td
 
 
 def yearly_means(d, from_year):
-    """官署ひとつ分のデータから、年ごとの (露点温度の平均, 海面水温の平均) の DataFrame を返す。夏季の、両方がそろった時刻だけ。"""
-    d = d.dropna(subset=["Td", "SST"])
+    """官署ひとつ分のデータから、年ごとの (気温の平均, 露点温度の平均, 海面水温の平均) の DataFrame を返す。夏季の、3つがそろった時刻だけ。"""
+    d = d.dropna(subset=["Ta", "Td", "SST"])
     day = (d["time"] - pd.Timedelta(hours=1)).dt.normalize()   # 0時は前日24時
     ok = day.dt.month.isin([6, 7, 8]) & (day.dt.year >= from_year)
-    return d.loc[ok, ["Td", "SST"]].groupby(day[ok].dt.year).mean()
+    return d.loc[ok, ["Ta", "Td", "SST"]].groupby(day[ok].dt.year).mean()
 
 
 def trend_line(ax, m, col, color, label):
@@ -55,24 +55,25 @@ def main():
 
     # 1枚目: 露点温度と海面水温
     fig, axs = plt.subplots(2, ncol, figsize=(3.6 * ncol + .5, 7.5), sharex=True, sharey=True, squeeze=False)
-    print("官署別: 傾き (℃/10年)  露点温度 / 海面水温 / 露点温度−海面水温")
+    print("官署別: 傾き (℃/10年)  気温 / 露点温度 / 海面水温 / 露点温度−海面水温")
     for ax, s in zip(axs.ravel(), names):
         m = means[s]
+        sa = trend_line(ax, m, "Ta", "#cc3311", "気温")
         st = trend_line(ax, m, "Td", "#228833", "露点温度")
         ss = trend_line(ax, m, "SST", "#0077bb", "海面水温")
-        print(f"  {s}: {st * 10:+.2f} / {ss * 10:+.2f} / {(st - ss) * 10:+.2f}")
+        print(f"  {s}: {sa * 10:+.2f} / {st * 10:+.2f} / {ss * 10:+.2f} / {(st - ss) * 10:+.2f}")
         ax.set(title=f"{s} (海域: {fp.STATION_SST[s]})")
-        ax.legend(fontsize=7, loc="upper left")
+        ax.legend(fontsize=6.5, loc="upper left")
         ax.grid(alpha=.3)
     for ax in axs.ravel()[len(names):]:
         ax.axis("off")
-    lo = min(v[["Td", "SST"]].min().min() for v in means.values())
-    hi = max(v[["Td", "SST"]].max().max() for v in means.values())
-    axs[0, 0].set_ylim(lo - 1, hi + 2.5)
+    lo = min(v[["Ta", "Td", "SST"]].min().min() for v in means.values())
+    hi = max(v[["Ta", "Td", "SST"]].max().max() for v in means.values())
+    axs[0, 0].set_ylim(lo - 1, hi + 3.5)
     for ax in axs[:, 0]:
         ax.set_ylabel("夏季(6〜8月)の平均 (℃)")
     fig.tight_layout(rect=(0, .05, 1, 1))
-    note = ("緑=露点温度、青=海面水温の年平均 (露点温度の観測時刻ごとに、その日の海面水温を対応させて平均)。細い直線=直線の当てはめ、傾きは凡例。"
+    note = ("赤=気温、緑=露点温度、青=海面水温の年平均 (観測時刻ごとに、その日の海面水温を対応させて平均)。細い直線=直線の当てはめ、傾きは凡例。"
             "\n露点温度は気温と相対湿度から求められた値で、相対湿度の記録は2013年前後で変わっている。1989年以前の観測は3時間おき。")
     fig.text(.01, .004, note, fontsize=8)
     figs = [(fig, "fog_td_year.png")]
