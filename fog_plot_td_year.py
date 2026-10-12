@@ -59,8 +59,8 @@ def main():
     for ax, s in zip(axs.ravel(), names):
         m = means[s]
         sa = trend_line(ax, m, "Ta", "#cc3311", "気温")
-        st = trend_line(ax, m, "Td", "#228833", "露点温度")
         ss = trend_line(ax, m, "SST", "#0077bb", "海面水温")
+        st = trend_line(ax, m, "Td", "#228833", "露点温度")
         print(f"  {s}: {sa * 10:+.2f} / {st * 10:+.2f} / {ss * 10:+.2f} / {(st - ss) * 10:+.2f}")
         ax.set(title=f"{s} (海域: {fp.STATION_SST[s]})")
         ax.legend(fontsize=6.5, loc="upper left")
@@ -73,7 +73,7 @@ def main():
     for ax in axs[:, 0]:
         ax.set_ylabel("夏季(6〜8月)の平均 (℃)")
     fig.tight_layout(rect=(0, .05, 1, 1))
-    note = ("赤=気温、緑=露点温度、青=海面水温の年平均 (観測時刻ごとに、その日の海面水温を対応させて平均)。細い直線=直線の当てはめ、傾きは凡例。"
+    note = ("赤=気温、青=海面水温、緑=露点温度の年平均 (観測時刻ごとに、その日の海面水温を対応させて平均)。細い直線=直線の当てはめ、傾きは凡例。"
             "\n露点温度は気温と相対湿度から求められた値で、相対湿度の記録は2013年前後で変わっている。1989年以前の観測は3時間おき。")
     fig.text(.01, .004, note, fontsize=8)
     figs = [(fig, "fog_td_year.png")]
