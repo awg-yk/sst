@@ -8,7 +8,7 @@ fog_plot.py と fog_days.py と fog_plot_td_sst.py と同じフォルダに置�
     python fog_days_td.py --save out/fog_days_td.png
 
 棒: 気象庁の霧日数 (6〜8月の合計)。 均質番号 (観測環境) が変わった年に▲を付け、最新の区間を濃い緑にします。
-折れ線 (赤, 右の軸): その年の6〜8月の、露点温度の観測時刻ごとに「その日の海面水温 − 露点温度」を求めた平均。
+折れ線 (赤, 右の軸。上ほど小さい向きに反転してあり、棒と同じ向きに動けば「差が小さい年ほど霧日数が多い」): その年の6〜8月の、露点温度の観測時刻ごとに「その日の海面水温 − 露点温度」を求めた平均。
 タイトルの r: 霧日数と折れ線の相関 (最新の区間 / --corr-from 年以降の最新の区間)。負なら「差が小さい年ほど霧日数が多い」。
 注意: 相対湿度の記録は2013年ごろに変わっていて (点線)、露点温度はその影響を受けます。1989年以前 (灰色の帯) は3時間おきの観測です。
 """
@@ -53,6 +53,7 @@ def main():
     stations = [s for s in (a.stations or fp.STATION_SST) if s in set(kiri["station"])]
 
     fig, axs = plt.subplots(len(stations), 1, figsize=(14, 2.9 * len(stations)), squeeze=False)
+    twins = []
     print("官署別: 霧日数と「海面水温−露点温度」の相関  最新の区間 / 最新の区間のうち corr-from 年以降")
     for ax, st in zip(axs.ravel(), stations):
         k = kiri[kiri.station == st].dropna(subset=["kiri"])
@@ -65,8 +66,10 @@ def main():
             ax.plot(y, 0, "^", color="darkorange", mec="k", ms=10, clip_on=False, zorder=5)
         g = gap[gap.index.get_level_values(0) == st].droplevel(0)
         ax2 = ax.twinx()
-        ax2.plot(g.index, g.values, "-", color="#cc3311", marker="o", ms=3.5, lw=1.4, label="海面水温−露点温度 (右の軸)")
-        ax2.set_ylabel("海面水温−露点温度 (℃)", color="#cc3311")
+        twins.append(ax2)
+        ax2.plot(g.index, g.values, "-", color="#cc3311", marker="o", ms=3.5, lw=1.4, label="海面水温−露点温度 (右の軸、上ほど小さい)")
+        ax2.invert_yaxis()   # 上が「差が小さい」: 差が小さい年ほど霧日数が多い関係なら、棒と折れ線が同じ向きに動く
+        ax2.set_ylabel("海面水温−露点温度 (℃)\n(上ほど差が小さい=霧が出やすい)", color="#cc3311", fontsize=9)
         ax2.tick_params(axis="y", colors="#cc3311")
         both = pd.DataFrame({"k": k.set_index("yr").kiri, "g": g}).dropna()
         both = both[both.index.isin(k.yr[cur])]
@@ -81,7 +84,7 @@ def main():
         ax.set_xlim(1981, 2027)
         ax.grid(alpha=.3)
     h1, l1 = axs.ravel()[0].get_legend_handles_labels()
-    h2, l2 = axs.ravel()[0].figure.axes[1].get_legend_handles_labels()
+    h2, l2 = twins[0].get_legend_handles_labels()
     axs.ravel()[0].legend(h1 + h2, l1 + l2, loc="upper left", fontsize=8, ncol=3)
     axs.ravel()[-1].set_xlabel("年  (灰色の帯: 観測が3時間おき以下の年 / 点線: 湿度の記録が変わった年 / ▲: 観測環境が変わった年)")
     fig.tight_layout()
