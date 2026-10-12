@@ -19,9 +19,9 @@ import pandas as pd
 import fog_plot as fp
 
 
-def yearly_means(d, from_year, night, min_hours):
+def yearly_means(d, from_year, night):
     """官署ひとつ分のデータから、年ごとの (気温の平均, 海面水温の平均, 時刻の数) の DataFrame を返す。
-    視程<1kmだった時刻 (night=False) か、夜〜朝の時刻 (night=True) だけ。時刻の数が min_hours 未満の年は除く。"""
+    視程<1kmだった時刻 (night=False) か、夜〜朝の時刻 (night=True) だけ。"""
     d = d.dropna(subset=["Ta", "SST"])
     day = (d["time"] - pd.Timedelta(hours=1)).dt.normalize()   # 0時は前日24時
     ok = day.dt.month.isin([6, 7, 8]) & (day.dt.year >= from_year)
@@ -31,8 +31,7 @@ def yearly_means(d, from_year, night, min_hours):
     else:
         ok &= d["fog"] == 1
     g = d.loc[ok, ["Ta", "SST"]].groupby(day[ok].dt.year)
-    out = g.mean().assign(n=g.size())
-    return out[out["n"] >= min_hours]
+    return g.mean().assign(n=g.size())
 
 
 def main():
@@ -52,14 +51,15 @@ def main():
         raise SystemExit(f"沿岸官署のCSVが見つかりません: {a.coast_dir} (--coast-dir で指定)")
     d = fp.fog_dataset(sst, coast)
     names = [s for s in fp.STATION_SST if s in set(d["station"])]
-    means = {s: yearly_means(d[d["station"] == s], a.from_year, a.night, a.min_hours) for s in names}
+    means = {s: yearly_means(d[d["station"] == s], a.from_year, a.night) for s in names}
     what = "夜〜朝 (21時〜翌9時) の時刻" if a.night else "視程<1kmだった時刻"
 
     ncol = (len(names) + 1) // 2
     fig, axs = plt.subplots(2, ncol, figsize=(3.6 * ncol + .5, 7.5), sharex=True, sharey=True, squeeze=False)
     print(f"官署別: {what}だけの平均の傾き (℃/10年)  気温 / 海面水温 / 気温−海面水温")
     for ax, s in zip(axs.ravel(), names):
-        m = means[s]
+        total = int(means[s]["n"].sum())
+        m = means[s][means[s]["n"] >= a.min_hours]   # 時刻の数が少ない年は描かない
         title = f"{s} (海域: {fp.STATION_SST[s]})"
         if len(m) >= 3:
             sl = {}
@@ -69,18 +69,20 @@ def main():
                 ax.plot(m.index, sl[col] * m.index + icpt, color=color, lw=1.6, alpha=.6, label=f"{label} {sl[col] * 10:+.2f}℃/10年")
             print(f"  {s}: {sl['Ta'] * 10:+.2f} / {sl['SST'] * 10:+.2f} / {(sl['Ta'] - sl['SST']) * 10:+.2f}")
             ax.legend(fontsize=7, loc="upper left")
-        ax.set_title(title + f"  計{int(m['n'].sum())}時間", fontsize=10)
+        ax.set_title(title + f"  計{total}時間", fontsize=10)
+        if len(m) < 3:
+            ax.text(.5, .5, f"{a.min_hours}時間以上ある年が少なく描けない", transform=ax.transAxes, ha="center", fontsize=8, color="#666")
         ax.grid(alpha=.3)
     for ax in axs.ravel()[len(names):]:
         ax.axis("off")
-    vals = [v[["Ta", "SST"]] for v in means.values() if len(v)]
+    vals = [v[v["n"] >= a.min_hours][["Ta", "SST"]] for v in means.values() if (v["n"] >= a.min_hours).any()]
     lo, hi = min(v.min().min() for v in vals), max(v.max().max() for v in vals)
     axs[0, 0].set_ylim(lo - 1, hi + 2.5)
     for ax in axs[:, 0]:
         ax.set_ylabel(f"{what}の平均 (℃)")
     fig.tight_layout(rect=(0, .05, 1, 1))
     fig.text(.01, .004, f"赤=気温、青=海面水温の、夏季(6〜8月)の{what}だけの年平均 (気温の観測時刻ごとに、その日の海面水温を対応させて平均)。"
-             f"\n細い直線=直線の当てはめ、傾きは凡例。1年の時刻の数が{a.min_hours}未満の年は描いていない。タイトルの時間数は図に使った時刻の合計。", fontsize=8)
+             f"\n細い直線=直線の当てはめ、傾きは凡例。1年の時刻の数が{a.min_hours}未満の年は描いていない。タイトルの時間数は、描かなかった年も含めた時刻の合計。", fontsize=8)
     if a.save_dir:
         os.makedirs(a.save_dir, exist_ok=True)
         path = os.path.join(a.save_dir, "fog_ta_sst_year_" + ("night" if a.night else "low") + ".png")
