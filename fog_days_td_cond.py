@@ -6,10 +6,15 @@ fog_plot.py と fog_days.py と fog_plot_td_sst.py と同じフォルダに置�
     python fog_days_td_cond.py                        # 既定の条件 (海面水温 − 露点温度 ≦ 0℃ の時刻が1時間以上ある日) で全官署
     python fog_days_td_cond.py --gap-max 1            # 条件を変える (海面水温 − 露点温度 ≦ 1℃)
     python fog_days_td_cond.py --gap-min -3 --gap-max 2 --min-hours 2   # 範囲と時間数を指定
+    python fog_days_td_cond.py --sat-max 2            # さらに 気温 − 露点温度 ≦ 2℃ (空気が飽和に近い) を加える
+    python fog_days_td_cond.py --sat-max 2 --dt-min -2 --dt-max 1     # さらに 気温 − 海面水温 が −2〜1℃ を加える
     python fog_days_td_cond.py --stations 八戸 宮古
     python fog_days_td_cond.py --save out/fog_days_td_cond.png
 
-黒線: 6〜8月で、毎時の観測の「--gap-min ≦ 海面水温 − 露点温度 ≦ --gap-max」を満たす時刻が --min-hours 時間以上ある日の、年ごとの日数。
+黒線: 6〜8月で、毎時の観測が次の条件をすべて満たす時刻が --min-hours 時間以上ある日の、年ごとの日数。
+      ・--gap-min ≦ 海面水温 − 露点温度 ≦ --gap-max  (既定: 上限0℃、下限なし)
+      ・気温 − 露点温度 ≦ --sat-max  (既定: 使わない。小さいほど空気が飽和に近い)
+      ・--dt-min ≦ 気温 − 海面水温 ≦ --dt-max  (既定: 使わない)
       (露点温度の観測時刻ごとに、その日の海面水温を引く。海面水温が露点温度以下なら 差 ≦ 0 で、空気が海面で露点まで冷やされる状態)
 棒: 気象庁の霧日数 (6〜8月の合計)。均質番号 (観測環境) が変わった年に▲を付け、最新の区間を濃い緑にします。
 タイトルの r: 霧日数と黒線の相関 (最新の区間 / そのうち --corr-from 年以降)。正なら「条件の日が多い年ほど霧日数が多い」。
@@ -27,14 +32,21 @@ import fog_plot as fp
 import fog_plot_td_sst as td
 
 
-def cond_days(sst, coast, dew, lo, hi, min_hours):
-    """(官署, 年) ごとの、「海面水温 − 露点温度」が lo〜hi の時刻が min_hours 時間以上ある日の日数 (Series)。
+def cond_days(sst, coast, dew, lo, hi, min_hours, sat_max=np.inf, dt_min=-np.inf, dt_max=np.inf):
+    """(官署, 年) ごとの、「海面水温 − 露点温度」が lo〜hi で、気温 − 露点温度 ≦ sat_max、気温 − 海面水温が dt_min〜dt_max の時刻が
+    min_hours 時間以上ある日の日数 (Series)。
     あわせて、露点温度と海面水温がそろった日が60日以上ある (官署, 年) の目印も返す。"""
-    d = fp.fog_dataset(sst, coast)[["time", "station", "SST"]].merge(dew, on=["time", "station"], how="left")
-    d = d.dropna(subset=["SST", "Td"])
+    d = fp.fog_dataset(sst, coast)[["time", "station", "Ta", "SST"]].merge(dew, on=["time", "station"], how="left")
+    d = d.dropna(subset=["SST", "Td"] + (["Ta"] if np.isfinite(sat_max) or np.isfinite(dt_min) or np.isfinite(dt_max) else []))
     d["day"] = (d["time"] - pd.Timedelta(hours=1)).dt.normalize()   # 0時は前日24時
     d = d[d["day"].dt.month.isin([6, 7, 8])]
-    d["hit"] = ((d["SST"] - d["Td"]) >= lo) & ((d["SST"] - d["Td"]) <= hi)
+    g = d["SST"] - d["Td"]
+    hit = (g >= lo) & (g <= hi)
+    if np.isfinite(sat_max):
+        hit &= (d["Ta"] - d["Td"]) <= sat_max
+    if np.isfinite(dt_min) or np.isfinite(dt_max):
+        hit &= ((d["Ta"] - d["SST"]) >= dt_min) & ((d["Ta"] - d["SST"]) <= dt_max)
+    d["hit"] = hit
     n = d.groupby(["station", "day"])["hit"].sum()
     ok = (n >= min_hours).reset_index(name="ok")
     ok["yr"] = ok["day"].dt.year
@@ -52,6 +64,9 @@ def main():
     p.add_argument("--stations", nargs="*", help="官署名 (省略で全官署)")
     p.add_argument("--gap-max", type=float, default=0, help="海面水温 − 露点温度 がこれ以下 (℃)")
     p.add_argument("--gap-min", type=float, default=-np.inf, help="海面水温 − 露点温度 がこれ以上 (℃)")
+    p.add_argument("--sat-max", type=float, default=np.inf, help="気温 − 露点温度 がこれ以下 (℃)。省略で使わない")
+    p.add_argument("--dt-min", type=float, default=-np.inf, help="気温 − 海面水温 がこれ以上 (℃)。省略で使わない")
+    p.add_argument("--dt-max", type=float, default=np.inf, help="気温 − 海面水温 がこれ以下 (℃)。省略で使わない")
     p.add_argument("--min-hours", type=int, default=1, help="1日にこの時間数以上 条件を満たせば、その日を数える")
     p.add_argument("--corr-from", type=int, default=2014, help="もう1つの相関を取る最初の年 (湿度の記録が変わった後)")
     p.add_argument("--save", help="PNGの保存先 (省略で画面表示のみ)")
@@ -62,9 +77,15 @@ def main():
     coast = fp.load_coast(a.coast_dir)
     if coast is None:
         raise SystemExit("沿岸官署のCSVが見つかりません: " + a.coast_dir)
-    days, have = cond_days(fp.summer(fp.load(a.dir)), coast, td.load_dew(a.dew_dir), a.gap_min, a.gap_max, a.min_hours)
+    days, have = cond_days(fp.summer(fp.load(a.dir)), coast, td.load_dew(a.dew_dir), a.gap_min, a.gap_max, a.min_hours,
+                           a.sat_max, a.dt_min, a.dt_max)
     stations = [s for s in (a.stations or fp.STATION_SST) if s in set(kiri["station"])]
-    label = ((f"{a.gap_min:g}℃ ≦ " if np.isfinite(a.gap_min) else "") + f"海面水温−露点温度 ≦ {a.gap_max:g}℃ の時刻が{a.min_hours}時間以上ある日の日数")
+    parts = [(f"{a.gap_min:g}℃ ≦ " if np.isfinite(a.gap_min) else "") + f"海面水温−露点温度 ≦ {a.gap_max:g}℃"]
+    if np.isfinite(a.sat_max):
+        parts.append(f"気温−露点温度 ≦ {a.sat_max:g}℃")
+    if np.isfinite(a.dt_min) or np.isfinite(a.dt_max):
+        parts.append((f"{a.dt_min:g}℃ ≦ " if np.isfinite(a.dt_min) else "") + "気温−海面水温" + (f" ≦ {a.dt_max:g}℃" if np.isfinite(a.dt_max) else ""))
+    label = " かつ ".join(parts) + f" の時刻が{a.min_hours}時間以上ある日の日数"
     ymax = max(kiri[kiri.station.isin(stations)].kiri.max(), days[days.index.get_level_values(0).isin(stations)].max()) * 1.05
 
     fig, axs = plt.subplots(len(stations), 1, figsize=(14, 2.9 * len(stations)), squeeze=False)
