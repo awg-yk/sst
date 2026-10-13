@@ -17,6 +17,7 @@ fog_plot.py と同じフォルダに置いて実行します (fog_plot.py の読
     python fog_days.py chart --cond td --gap-max 0 --sat-max 2          # 露点温度の条件 (cond と同じ条件)
     python fog_days.py chart --cond none --stations 八戸 宮古            # 霧日数だけ (条件の線なし)
     python fog_days.py temps --stations 八戸 宮古    # どのモードでも、官署を選べる
+    python fog_days.py temps --per-fig 2           # 1つの図に2官署ずつ (既定は3官署ずつ。図は官署の数だけ複数のウィンドウに分かれて表示される)
     python fog_days.py cond --save out/fog_days_cond.png   # PNGに保存
 
 モード:
@@ -148,18 +149,26 @@ def r_title(st, both, late, r1, r2, corr_from, empty_plain=False):
             f"{corr_from}年以降 r = {fmt(r2)} (n={len(late)})"), fmt(r1), fmt(r2)
 
 
-def finish(fig, axs, a):
+def pages(stations, a):
+    """官署を --per-fig 個ずつに分ける (1つの図に10官署を詰めると狭いので、数枚の図に分けて表示する)。"""
+    n = max(1, a.per_fig)
+    return [stations[i:i + n] for i in range(0, len(stations), n)]
+
+
+def finish(fig, axs, a, page=0, npages=1):
+    """図の下に横軸の説明を付け、--save があれば保存する (図が複数枚のときは _1, _2 ... を付ける)。表示は main の最後でまとめて行う。"""
     axs.ravel()[-1].set_xlabel(XLABEL)
     fig.tight_layout()
     if a.save:
-        os.makedirs(os.path.dirname(os.path.abspath(a.save)), exist_ok=True)
-        fig.savefig(a.save, dpi=110)
-        print("保存:", a.save)
-    plt.show()
+        root, ext = os.path.splitext(a.save)
+        path = a.save if npages == 1 else f"{root}_{page + 1}{ext}"
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        fig.savefig(path, dpi=110)
+        print("保存:", path)
 
 
 def new_figure(stations):
-    return plt.subplots(len(stations), 1, figsize=(14, 2.9 * len(stations)), squeeze=False)
+    return plt.subplots(len(stations), 1, figsize=(14, 3.2 * len(stations)), squeeze=False)
 
 
 # ---------------------------------------------------------------- rh
@@ -174,28 +183,31 @@ def run_rh(a, kiri, coast, stations):
              + (f"・≦{a.dt_hi:g}℃" if np.isfinite(a.dt_hi) else "") + f" の時刻が{a.min_hours}時間以上ある日")
     stations = a.stations or [s for s in fp.STATION_SST if s in set(kiri["station"])]
 
-    fig, axs = new_figure(stations)
-    for ax, st in zip(axs.ravel(), stations):
-        k = kiri[kiri.station == st].dropna(subset=["kiri"])
-        cur = draw_bars(ax, k)
-        years = sorted(ok_day[ok_day.index.get_level_values(0) == st].index.get_level_values(1))
-        if not a.no_ref:
-            r = ref.reindex(pd.MultiIndex.from_product([[st], years]), fill_value=0)
-            ax.plot(years, r.values, "--", color="gray", marker="o", ms=3, lw=1,
-                    label="先生の条件 (日平均湿度≧80% かつ |日最低気温−SST|≦1℃)")
-        m = mine.reindex(pd.MultiIndex.from_product([[st], years]), fill_value=0)
-        ax.plot(years, m.values, "-", color="k", marker="D", ms=4, lw=1.5, label=label)
-        both = pd.DataFrame({"k": k.set_index("yr").kiri, "c": pd.Series(m.values, index=years)}).dropna()
-        both = both[both.index.isin(k.yr[cur])]
-        both = both[both.index >= a.corr_from]
-        rr = both.k.corr(both.c) if len(both) > 4 and both.c.std() > 0 else np.nan
-        ax.set_title(f"{st}   {both.index.min()}〜{both.index.max()}年の相関 r = {rr:.2f} (n={len(both)}年)" if np.isfinite(rr) else st,
-                     loc="left", fontsize=11)
-        ax.set_ylabel("日数")
-        ax.set_xlim(1981, 2027)
-        ax.grid(alpha=.3)
-    axs.ravel()[0].legend(loc="upper left", fontsize=8, ncol=2)
-    finish(fig, axs, a)
+    chunks = pages(stations, a)
+    npages = len(chunks)
+    for pg, sts in enumerate(chunks):
+        fig, axs = new_figure(sts)
+        for ax, st in zip(axs.ravel(), sts):
+            k = kiri[kiri.station == st].dropna(subset=["kiri"])
+            cur = draw_bars(ax, k)
+            years = sorted(ok_day[ok_day.index.get_level_values(0) == st].index.get_level_values(1))
+            if not a.no_ref:
+                r = ref.reindex(pd.MultiIndex.from_product([[st], years]), fill_value=0)
+                ax.plot(years, r.values, "--", color="gray", marker="o", ms=3, lw=1,
+                        label="先生の条件 (日平均湿度≧80% かつ |日最低気温−SST|≦1℃)")
+            m = mine.reindex(pd.MultiIndex.from_product([[st], years]), fill_value=0)
+            ax.plot(years, m.values, "-", color="k", marker="D", ms=4, lw=1.5, label=label)
+            both = pd.DataFrame({"k": k.set_index("yr").kiri, "c": pd.Series(m.values, index=years)}).dropna()
+            both = both[both.index.isin(k.yr[cur])]
+            both = both[both.index >= a.corr_from]
+            rr = both.k.corr(both.c) if len(both) > 4 and both.c.std() > 0 else np.nan
+            ax.set_title(f"{st}   {both.index.min()}〜{both.index.max()}年の相関 r = {rr:.2f} (n={len(both)}年)" if np.isfinite(rr) else st,
+                         loc="left", fontsize=11)
+            ax.set_ylabel("日数")
+            ax.set_xlim(1981, 2027)
+            ax.grid(alpha=.3)
+        axs.ravel()[0].legend(loc="upper left", fontsize=8, ncol=2)
+        finish(fig, axs, a, pg, npages)
 
 
 # ---------------------------------------------------------------- cond
@@ -230,25 +242,28 @@ def run_cond(a, kiri, coast, stations):
     label = " かつ ".join(parts) + f" の時刻が{a.min_hours}時間以上ある日の日数"
     ymax = max(kiri[kiri.station.isin(stations)].kiri.max(), days[days.index.get_level_values(0).isin(stations)].max()) * 1.05
 
-    fig, axs = new_figure(stations)
     print(f"条件: {label}")
     print("官署別: 霧日数と黒線の相関  最新の区間 / 最新の区間のうち corr-from 年以降")
-    for ax, st in zip(axs.ravel(), stations):
-        k = kiri[kiri.station == st].dropna(subset=["kiri"])
-        cur = draw_bars(ax, k)
-        years = sorted(have[have.index.get_level_values(0) == st].index.get_level_values(1))
-        m = days.reindex(pd.MultiIndex.from_product([[st], years]), fill_value=0)
-        ax.plot(years, m.values, "-", color="k", marker="D", ms=4, lw=1.5, label=label)
-        both, late, r1, r2 = correlations(k, cur, years, m.values, a.corr_from)
-        title, f1, f2 = r_title(st, both, late, r1, r2, a.corr_from, empty_plain=True)
-        print(f"  {st}: {f1} (n={len(both)}) / {f2} (n={len(late)})")
-        ax.set_title(title, loc="left", fontsize=10.5)
-        ax.set_ylabel("日数")
-        ax.set_xlim(1981, 2027)
-        ax.set_ylim(0, ymax)
-        ax.grid(alpha=.3)
-    axs.ravel()[0].legend(loc="upper left", fontsize=8, ncol=2)
-    finish(fig, axs, a)
+    chunks = pages(stations, a)
+    npages = len(chunks)
+    for pg, sts in enumerate(chunks):
+        fig, axs = new_figure(sts)
+        for ax, st in zip(axs.ravel(), sts):
+            k = kiri[kiri.station == st].dropna(subset=["kiri"])
+            cur = draw_bars(ax, k)
+            years = sorted(have[have.index.get_level_values(0) == st].index.get_level_values(1))
+            m = days.reindex(pd.MultiIndex.from_product([[st], years]), fill_value=0)
+            ax.plot(years, m.values, "-", color="k", marker="D", ms=4, lw=1.5, label=label)
+            both, late, r1, r2 = correlations(k, cur, years, m.values, a.corr_from)
+            title, f1, f2 = r_title(st, both, late, r1, r2, a.corr_from, empty_plain=True)
+            print(f"  {st}: {f1} (n={len(both)}) / {f2} (n={len(late)})")
+            ax.set_title(title, loc="left", fontsize=10.5)
+            ax.set_ylabel("日数")
+            ax.set_xlim(1981, 2027)
+            ax.set_ylim(0, ymax)
+            ax.grid(alpha=.3)
+        axs.ravel()[0].legend(loc="upper left", fontsize=8, ncol=2)
+        finish(fig, axs, a, pg, npages)
 
 
 # ---------------------------------------------------------------- temps / gap
@@ -265,61 +280,67 @@ def run_temps(a, kiri, coast, stations):
     tlo, thi = mm.min().min(), mm.max().max()
     pad = (thi - tlo) * .05
 
-    fig, axs = new_figure(stations)
-    twins = []
-    for ax, st in zip(axs.ravel(), stations):
-        draw_bars(ax, kiri[kiri.station == st].dropna(subset=["kiri"]))
-        m = means[means.index.get_level_values(0) == st].droplevel(0)
-        ax2 = ax.twinx()
-        twins.append(ax2)
-        for col, name, color in LINES:
-            ax2.plot(m.index, m[col], "-", color=color, marker="o", ms=3, lw=1.3, label=f"{name} (右の軸)")
-        ax2.set_ylabel("気温・水温 (℃)")
-        ax2.set_ylim(tlo - pad, thi + pad)
-        ax.set_title(st, loc="left", fontsize=11)
-        ax.set_ylabel("霧日数 (日)")
-        ax.set_xlim(1981, 2027)
-        ax.set_ylim(0, ymax)
-        ax.grid(alpha=.3)
-    h1, l1 = axs.ravel()[0].get_legend_handles_labels()
-    h2, l2 = twins[0].get_legend_handles_labels()
-    axs.ravel()[0].legend(h1 + h2, l1 + l2, loc="upper left", fontsize=8, ncol=5)
-    finish(fig, axs, a)
+    chunks = pages(stations, a)
+    npages = len(chunks)
+    for pg, sts in enumerate(chunks):
+        fig, axs = new_figure(sts)
+        twins = []
+        for ax, st in zip(axs.ravel(), sts):
+            draw_bars(ax, kiri[kiri.station == st].dropna(subset=["kiri"]))
+            m = means[means.index.get_level_values(0) == st].droplevel(0)
+            ax2 = ax.twinx()
+            twins.append(ax2)
+            for col, name, color in LINES:
+                ax2.plot(m.index, m[col], "-", color=color, marker="o", ms=3, lw=1.3, label=f"{name} (右の軸)")
+            ax2.set_ylabel("気温・水温 (℃)")
+            ax2.set_ylim(tlo - pad, thi + pad)
+            ax.set_title(st, loc="left", fontsize=11)
+            ax.set_ylabel("霧日数 (日)")
+            ax.set_xlim(1981, 2027)
+            ax.set_ylim(0, ymax)
+            ax.grid(alpha=.3)
+        h1, l1 = axs.ravel()[0].get_legend_handles_labels()
+        h2, l2 = twins[0].get_legend_handles_labels()
+        axs.ravel()[0].legend(h1 + h2, l1 + l2, loc="upper left", fontsize=8, ncol=5)
+        finish(fig, axs, a, pg, npages)
 
 
 def run_gap(a, kiri, coast, stations):
     gap = yearly(fp.summer(fp.load(a.dir)), coast, ["SST", "Td"], lambda d: d["SST"] - d["Td"])
-    fig, axs = new_figure(stations)
-    twins = []
+    chunks = pages(stations, a)
+    npages = len(chunks)
     print("官署別: 霧日数と「海面水温−露点温度」の相関  最新の区間 / 最新の区間のうち corr-from 年以降")
-    for ax, st in zip(axs.ravel(), stations):
-        k = kiri[kiri.station == st].dropna(subset=["kiri"])
-        cur = draw_bars(ax, k)
-        g = gap[gap.index.get_level_values(0) == st].droplevel(0)
-        ax2 = ax.twinx()
-        twins.append(ax2)
-        ax2.plot(g.index, g.values, "-", color="#cc3311", marker="o", ms=3.5, lw=1.4, label="海面水温−露点温度 (右の軸、上ほど小さい)")
-        ax2.invert_yaxis()   # 上が「差が小さい」: 差が小さい年ほど霧日数が多い関係なら、棒と折れ線が同じ向きに動く
-        ax2.set_ylabel("海面水温−露点温度 (℃)\n(上ほど差が小さい=霧が出やすい)", color="#cc3311", fontsize=9)
-        ax2.tick_params(axis="y", colors="#cc3311")
-        both, late, r1, r2 = correlations(k, cur, g.index, g.values, a.corr_from, need_std=False)
-        title, f1, f2 = r_title(st, both, late, r1, r2, a.corr_from)
-        print(f"  {st}: {f1} (n={len(both)}) / {f2} (n={len(late)})")
-        ax.set_title(title, loc="left", fontsize=10.5)
-        ax.set_ylabel("霧日数 (日)")
-        ax.set_xlim(1981, 2027)
-        ax.grid(alpha=.3)
-    # 縦軸の範囲を全官署で同じにする (左: 霧日数 0〜最大、右: 海面水温−露点温度 の全官署の最小〜最大。右は上ほど小さい向き)
-    ymax = kiri[kiri.station.isin(stations)].kiri.max() * 1.05
-    gg = gap[gap.index.get_level_values(0).isin(stations)]
-    pad = (gg.max() - gg.min()) * .05
-    for ax, ax2 in zip(axs.ravel(), twins):
-        ax.set_ylim(0, ymax)
-        ax2.set_ylim(gg.max() + pad, gg.min() - pad)
-    h1, l1 = axs.ravel()[0].get_legend_handles_labels()
-    h2, l2 = twins[0].get_legend_handles_labels()
-    axs.ravel()[0].legend(h1 + h2, l1 + l2, loc="upper left", fontsize=8, ncol=3)
-    finish(fig, axs, a)
+    for pg, sts in enumerate(chunks):
+        fig, axs = new_figure(sts)
+        twins = []
+        for ax, st in zip(axs.ravel(), sts):
+            k = kiri[kiri.station == st].dropna(subset=["kiri"])
+            cur = draw_bars(ax, k)
+            g = gap[gap.index.get_level_values(0) == st].droplevel(0)
+            ax2 = ax.twinx()
+            twins.append(ax2)
+            ax2.plot(g.index, g.values, "-", color="#cc3311", marker="o", ms=3.5, lw=1.4, label="海面水温−露点温度 (右の軸、上ほど小さい)")
+            ax2.invert_yaxis()   # 上が「差が小さい」: 差が小さい年ほど霧日数が多い関係なら、棒と折れ線が同じ向きに動く
+            ax2.set_ylabel("海面水温−露点温度 (℃)\n(上ほど差が小さい=霧が出やすい)", color="#cc3311", fontsize=9)
+            ax2.tick_params(axis="y", colors="#cc3311")
+            both, late, r1, r2 = correlations(k, cur, g.index, g.values, a.corr_from, need_std=False)
+            title, f1, f2 = r_title(st, both, late, r1, r2, a.corr_from)
+            print(f"  {st}: {f1} (n={len(both)}) / {f2} (n={len(late)})")
+            ax.set_title(title, loc="left", fontsize=10.5)
+            ax.set_ylabel("霧日数 (日)")
+            ax.set_xlim(1981, 2027)
+            ax.grid(alpha=.3)
+        # 縦軸の範囲を全官署で同じにする (左: 霧日数 0〜最大、右: 海面水温−露点温度 の全官署の最小〜最大。右は上ほど小さい向き)
+        ymax = kiri[kiri.station.isin(stations)].kiri.max() * 1.05
+        gg = gap[gap.index.get_level_values(0).isin(stations)]
+        pad = (gg.max() - gg.min()) * .05
+        for ax, ax2 in zip(axs.ravel(), twins):
+            ax.set_ylim(0, ymax)
+            ax2.set_ylim(gg.max() + pad, gg.min() - pad)
+        h1, l1 = axs.ravel()[0].get_legend_handles_labels()
+        h2, l2 = twins[0].get_legend_handles_labels()
+        axs.ravel()[0].legend(h1 + h2, l1 + l2, loc="upper left", fontsize=8, ncol=3)
+        finish(fig, axs, a, pg, npages)
 
 
 # ---------------------------------------------------------------- chart
@@ -359,7 +380,8 @@ def main():
     common.add_argument("--kiri", default=os.path.join(fp.HERE, "東北地方気象官署月別値霧日数.csv"), help="霧日数の月別値CSV")
     common.add_argument("--stations", nargs="*", help="官署名 (省略で全官署)")
     common.add_argument("--corr-from", type=int, default=2014, help="相関を取る最初の年 (湿度の記録が変わった後)")
-    common.add_argument("--save", help="PNGの保存先 (省略で画面表示のみ)")
+    common.add_argument("--per-fig", type=int, default=3, help="1つの図に並べる官署の数 (既定3。多いと狭くなるので、数枚の図に分けて表示する。chart モードは常に1官署1枚)")
+    common.add_argument("--save", help="PNGの保存先 (図が複数枚のときは _1, _2 ... を付けて保存。省略で画面表示のみ)")
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="mode", metavar="モード")
     q = sub.add_parser("rh", parents=[common], help="相対湿度 と 気温−海面水温 の条件の日数")
@@ -401,6 +423,7 @@ def main():
         raise SystemExit("沿岸官署のCSVが見つかりません: " + a.coast_dir)
     stations = [s for s in (a.stations or fp.STATION_SST) if s in set(kiri["station"])]
     {"rh": run_rh, "cond": run_cond, "temps": run_temps, "gap": run_gap, "chart": run_chart}[a.mode](a, kiri, coast, stations)
+    plt.show()      # 図が複数枚のときは、すべて別々のウィンドウで表示する (閉じると終了)
 
 
 if __name__ == "__main__":
