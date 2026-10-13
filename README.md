@@ -13,6 +13,7 @@ python fog_plot.py --hourly-only     # 官署ごとに、視程が毎時にな�
 - `fog_plot_ta_sst.py`: 気温(横)×海面水温(縦)を1℃ごとに区切って、視程<1kmの出現率を示す図(相対湿度は使わない。`--each` で官署ごとに1枚ずつ)。`fog_plot.py` と同じフォルダに置く。
 - `fog_plot_year_temp_low.py`: 視程<1kmだった時の年(横)×温度(縦, 1℃ごと)のヒートマップ(上=気温、下=海面水温、色=その回数)。`fog_plot.py` と同じフォルダに置く。
 - `fog_plot_each.py`: 同じ図を官署ごとに1枚ずつ表示します(`fog_plot.py` と同じフォルダに置く。`--save-dir out` でPNG保存)。
+- `fog_days_temps.py`: 公式の霧日数(棒)に、夏季の気温・海面水温・露点温度の年平均(折れ線、右の軸)を重ねて官署別に示す図。縦軸は全官署で同じ範囲。`fog_plot.py` と `fog_days.py` と `fog_plot_td_sst.py` と同じフォルダに置く(霧日数は `tohoku.csv`)。
 - `fog_days_claude_td.ipynb`: Colab 用のノートブック (`fog_days_claude_v5.ipynb` と同じ形式)。露点温度を使った条件(海面水温−露点温度、必要なら気温−露点温度・気温−海面水温)を、プルダウンやスライダーで変えながら、霧日数に黒線で重ねて確かめる。露点温度は `東北地方沿岸気象官署時別値露点温度` フォルダを使う。
 - `fog_days_td_cond.py`: 公式の霧日数(棒)に、「海面水温−露点温度」が条件(既定 ≦0℃)を満たす時刻がある日の日数(黒線)を重ねて官署別に示す図。条件は `--gap-max` `--gap-min` `--min-hours` で変えられ、`--sat-max`(気温−露点温度の上限)、`--dt-min` `--dt-max`(気温−海面水温の範囲)も足せる。`fog_plot.py` と `fog_days.py` と `fog_plot_td_sst.py` と同じフォルダに置く(霧日数は `tohoku.csv`)。
 - `fog_days_td.py`: 公式の霧日数(棒)に、夏季の「海面水温−露点温度」の年平均(赤い折れ線、右の軸)を重ねて官署別に示す図。霧日数との相関も表示。`fog_plot.py` と `fog_days.py` と `fog_plot_td_sst.py` と同じフォルダに置く(霧日数は `tohoku.csv`)。
