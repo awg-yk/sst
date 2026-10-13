@@ -1,6 +1,6 @@
 """霧日数(棒)に、夏季(6〜8月)の気温・海面水温・露点温度の年平均(折れ線, 右の軸)を重ねて表示する。官署ごとに1段、縦軸は全官署で同じ範囲。
-fog_plot.py と fog_days.py と fog_plot_td_sst.py と同じフォルダに置いて実行します。
-露点温度は「東北地方沿岸気象官署時別値露点温度」フォルダ、霧日数は tohoku.csv (気象庁の月別値) を使います。
+fog_plot.py と fog_days.py と同じフォルダに置いて実行します。
+露点温度は「東北地方沿岸気象官署時別値」フォルダの時別値CSV、霧日数は tohoku.csv (気象庁の月別値) を使います。
 
     python fog_days_temps.py                     # 全官署
     python fog_days_temps.py --stations 八戸 宮古   # 官署を選ぶ
@@ -19,14 +19,13 @@ import pandas as pd
 
 import fog_days as fd
 import fog_plot as fp
-import fog_plot_td_sst as td
 
 LINES = (("Ta", "気温", "#cc3311"), ("SST", "海面水温", "#0077bb"), ("Td", "露点温度", "#228833"))
 
 
-def yearly_means(sst, coast, dew):
+def yearly_means(sst, coast):
     """(官署, 年) ごとの 夏季の気温・海面水温・露点温度の平均 (DataFrame, 列 Ta SST Td)。3つがそろった時刻だけ。"""
-    d = fp.fog_dataset(sst, coast)[["time", "station", "Ta", "SST"]].merge(dew, on=["time", "station"], how="left")
+    d = fp.fog_dataset(sst, coast)[["time", "station", "Ta", "SST", "Td"]]
     d = d.dropna(subset=["Ta", "SST", "Td"])
     day = (d["time"] - pd.Timedelta(hours=1)).dt.normalize()   # 0時は前日24時
     d = d[day.dt.month.isin([6, 7, 8])]
@@ -37,7 +36,6 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--dir", default=fp.SST_DIR, help="海面水温 *.txt のあるフォルダ")
     p.add_argument("--coast-dir", default=fp.COAST_DIR)
-    p.add_argument("--dew-dir", default=td.DEW_DIR, help="露点温度の時別値CSVのフォルダ")
     p.add_argument("--kiri", default=os.path.join(fp.HERE, "tohoku.csv"), help="霧日数の月別値CSV")
     p.add_argument("--stations", nargs="*", help="官署名 (省略で全官署)")
     p.add_argument("--save", help="PNGの保存先 (省略で画面表示のみ)")
@@ -48,7 +46,7 @@ def main():
     coast = fp.load_coast(a.coast_dir)
     if coast is None:
         raise SystemExit("沿岸官署のCSVが見つかりません: " + a.coast_dir)
-    means = yearly_means(fp.summer(fp.load(a.dir)), coast, td.load_dew(a.dew_dir))
+    means = yearly_means(fp.summer(fp.load(a.dir)), coast)
     stations = [s for s in (a.stations or fp.STATION_SST) if s in set(kiri["station"])]
 
     # 縦軸の範囲を全官署で同じにする (左: 霧日数 0〜最大、右: 気温・海面水温・露点温度の全官署の最小〜最大)

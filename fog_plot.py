@@ -85,7 +85,7 @@ FOG_KM = 1.0  # 視程がこれ未満 = 低視程 (霧とは限らない: 降水
 
 
 def load_coast(coast_dir=COAST_DIR):
-    """沿岸官署の時別値CSV(年ごと)を読み、時刻×官署の縦長DataFrame(Ta=気温, RH=相対湿度, vis=視程km)を返す。
+    """沿岸官署の時別値CSV(年ごと)を読み、時刻×官署の縦長DataFrame(Ta=気温, Td=露点温度, RH=相対湿度, vis=視程km)を返す。
     列の位置は見出し行から判定する。品質情報が8(正常)の値だけを使う。"""
     files = sorted(glob.glob(os.path.join(coast_dir, "*.csv")))
     if not files:
@@ -111,7 +111,7 @@ def load_coast(coast_dir=COAST_DIR):
         for st in dict.fromkeys(n for n in names[1:] if n):
             cols = [i for i in range(1, len(names)) if names[i] == st]
             vals = {}
-            for key, title in (("Ta", "気温"), ("RH", "相対湿度"), ("vis", "視程")):
+            for key, title in (("Ta", "気温"), ("Td", "露点温度"), ("RH", "相対湿度"), ("vis", "視程")):
                 c = next((i for i in cols if titles[i].startswith(title)), None)
                 if c is None:
                     vals[key] = np.full(len(t), np.nan)

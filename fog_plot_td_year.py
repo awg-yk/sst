@@ -1,6 +1,6 @@
 """夏季 (6〜8月) の気温・露点温度・海面水温の年ごとの平均を、官署ごとに折れ線で示す図。
 1枚目: 気温・露点温度・海面水温の年平均。 2枚目: 「露点温度 − 海面水温」の年平均 (霧の出やすさに関わる、空気が海面で冷やされる余地)。
-fog_plot.py と fog_plot_td_sst.py と同じフォルダに置いて実行します (露点温度は「東北地方沿岸気象官署時別値露点温度」フォルダ、1984年〜)。
+fog_plot.py と同じフォルダに置いて実行します (露点温度は「東北地方沿岸気象官署時別値」フォルダの時別値CSV、1984年〜)。
 
     python fog_plot_td_year.py                  # 2枚の図を画面に順に表示
     python fog_plot_td_year.py --from-year 1990 # この年以降だけ使う
@@ -17,7 +17,6 @@ import numpy as np
 import pandas as pd
 
 import fog_plot as fp
-import fog_plot_td_sst as td
 
 
 def yearly_means(d, from_year):
@@ -39,7 +38,6 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--dir", default=fp.SST_DIR, help="海面水温 *.txt のあるフォルダ")
     p.add_argument("--coast-dir", default=fp.COAST_DIR, help="沿岸官署の時別値CSVのフォルダ")
-    p.add_argument("--dew-dir", default=td.DEW_DIR, help="露点温度の時別値CSVのフォルダ")
     p.add_argument("--from-year", type=int, default=1982, help="この年以降を使う (既定 1982。露点温度は1984年から)")
     p.add_argument("--save-dir", help="画面に出さずPNGをこのフォルダに保存する")
     a = p.parse_args()
@@ -48,7 +46,7 @@ def main():
     coast = fp.load_coast(a.coast_dir)
     if coast is None:
         raise SystemExit(f"沿岸官署のCSVが見つかりません: {a.coast_dir} (--coast-dir で指定)")
-    d = fp.fog_dataset(fp.summer(fp.load(a.dir)), coast).merge(td.load_dew(a.dew_dir), on=["time", "station"], how="left")
+    d = fp.fog_dataset(fp.summer(fp.load(a.dir)), coast)
     names = [s for s in fp.STATION_SST if s in set(d["station"])]
     means = {s: yearly_means(d[d["station"] == s], a.from_year).dropna() for s in names}
     ncol = (len(names) + 1) // 2

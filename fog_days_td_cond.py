@@ -1,7 +1,7 @@
 """霧日数(棒)に、「海面水温 − 露点温度」が条件を満たす時刻がある日の日数(黒線)を重ねて表示する。官署ごとに1段、縦軸は全官署で同じ範囲。
 海面水温 − 露点温度 が小さい(海面で冷やされた空気が飽和に近づく)時刻がある日が多い年ほど、霧日数も多いはず、という見方を確かめる。
-fog_plot.py と fog_days.py と fog_plot_td_sst.py と同じフォルダに置いて実行します。
-露点温度は「東北地方沿岸気象官署時別値露点温度」フォルダ、霧日数は tohoku.csv (気象庁の月別値) を使います。
+fog_plot.py と fog_days.py と同じフォルダに置いて実行します。
+露点温度は「東北地方沿岸気象官署時別値」フォルダの時別値CSV、霧日数は tohoku.csv (気象庁の月別値) を使います。
 
     python fog_days_td_cond.py                        # 既定の条件 (海面水温 − 露点温度 ≦ 0℃ の時刻が1時間以上ある日) で全官署
     python fog_days_td_cond.py --gap-max 1            # 条件を変える (海面水温 − 露点温度 ≦ 1℃)
@@ -29,14 +29,13 @@ import pandas as pd
 
 import fog_days as fd
 import fog_plot as fp
-import fog_plot_td_sst as td
 
 
-def cond_days(sst, coast, dew, lo, hi, min_hours, sat_max=np.inf, dt_min=-np.inf, dt_max=np.inf):
+def cond_days(sst, coast, lo, hi, min_hours, sat_max=np.inf, dt_min=-np.inf, dt_max=np.inf):
     """(官署, 年) ごとの、「海面水温 − 露点温度」が lo〜hi で、気温 − 露点温度 ≦ sat_max、気温 − 海面水温が dt_min〜dt_max の時刻が
     min_hours 時間以上ある日の日数 (Series)。
     あわせて、露点温度と海面水温がそろった日が60日以上ある (官署, 年) の目印も返す。"""
-    d = fp.fog_dataset(sst, coast)[["time", "station", "Ta", "SST"]].merge(dew, on=["time", "station"], how="left")
+    d = fp.fog_dataset(sst, coast)[["time", "station", "Ta", "SST", "Td"]]
     d = d.dropna(subset=["SST", "Td"] + (["Ta"] if np.isfinite(sat_max) or np.isfinite(dt_min) or np.isfinite(dt_max) else []))
     d["day"] = (d["time"] - pd.Timedelta(hours=1)).dt.normalize()   # 0時は前日24時
     d = d[d["day"].dt.month.isin([6, 7, 8])]
@@ -59,7 +58,6 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--dir", default=fp.SST_DIR, help="海面水温 *.txt のあるフォルダ")
     p.add_argument("--coast-dir", default=fp.COAST_DIR)
-    p.add_argument("--dew-dir", default=td.DEW_DIR, help="露点温度の時別値CSVのフォルダ")
     p.add_argument("--kiri", default=os.path.join(fp.HERE, "tohoku.csv"), help="霧日数の月別値CSV")
     p.add_argument("--stations", nargs="*", help="官署名 (省略で全官署)")
     p.add_argument("--gap-max", type=float, default=0, help="海面水温 − 露点温度 がこれ以下 (℃)")
@@ -77,7 +75,7 @@ def main():
     coast = fp.load_coast(a.coast_dir)
     if coast is None:
         raise SystemExit("沿岸官署のCSVが見つかりません: " + a.coast_dir)
-    days, have = cond_days(fp.summer(fp.load(a.dir)), coast, td.load_dew(a.dew_dir), a.gap_min, a.gap_max, a.min_hours,
+    days, have = cond_days(fp.summer(fp.load(a.dir)), coast, a.gap_min, a.gap_max, a.min_hours,
                            a.sat_max, a.dt_min, a.dt_max)
     stations = [s for s in (a.stations or fp.STATION_SST) if s in set(kiri["station"])]
     parts = [(f"{a.gap_min:g}℃ ≦ " if np.isfinite(a.gap_min) else "") + f"海面水温−露点温度 ≦ {a.gap_max:g}℃"]
