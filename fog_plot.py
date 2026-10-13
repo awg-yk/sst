@@ -219,16 +219,18 @@ def fog_heat(ax, n, k, title, norm, cmap):
     return ScalarMappable(norm=norm, cmap=cmap)
 
 
-def hourly_start_years(coast, full=0.9, floor=0.7):
-    """官署ごとに、視程が毎時で記録されるようになった最初の年。
-    その年の視程の記録率(6〜8月の全時刻のうち値のある割合)が90%以上で、以後の年も70%を下回らない最初の年。"""
-    yr = coast["time"].dt.year
-    cov = coast.groupby(["station", yr])["vis"].apply(lambda s: s.notna().mean()).unstack(0)
-    start = {}
-    for st in cov.columns:
-        c = cov[st]
-        start[st] = next((y for y in c.index if c.loc[y] >= full and c.loc[y:].min() >= floor), None)
-    return start
+# 大気現象 (霧・視程) の観測が目視から視程計による自動観測に変わった日。気象庁「気象観測統計指針」表3.4－6 (観測の自動化に伴う統計の切断年月日と地点)。
+# この日以降、視程は毎時に記録される。この前後で、公式の霧日数の統計は接続されない (切断される)。
+AUTOMATION = {
+    "むつ": "1998-03-01", "石巻": "2003-03-01", "深浦": "2004-10-01", "大船渡": "2006-10-01", "八戸": "2007-10-01", "宮古": "2007-10-01",
+    "小名浜": "2008-10-01", "酒田": "2009-10-01", "青森": "2020-02-03", "秋田": "2020-02-03",
+}
+
+
+def hourly_start_years(coast=None):
+    """官署ごとに、夏季 (6〜8月) の視程が毎時になった最初の年。AUTOMATION の自動化した日から決める
+    (6月以降の日付なら翌年の夏から、5月までなら同じ年の夏から)。coast は使わない (従来の呼び出しとの互換のために残している)。"""
+    return {st: int(d[:4]) + (1 if int(d[5:7]) >= 6 else 0) for st, d in AUTOMATION.items()}
 
 
 def fog_valid(df, args):
