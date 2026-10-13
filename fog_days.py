@@ -1,6 +1,6 @@
 """霧日数(棒)に、条件を満たす日数や、気温・海面水温・露点温度の年平均(折れ線)を重ねて、官署ごとに表示する。
 fog_plot.py と同じフォルダに置いて実行します (fog_plot.py の読み込み処理を使います)。
-霧日数は tohoku.csv (気象庁の月別値 「霧日数」。--kiri で場所を指定。既定は同じフォルダ) の6〜8月の合計。
+霧日数は 東北地方気象官署月別値霧日数.csv (気象庁の月別値 「霧日数」。--kiri で場所を指定。既定は同じフォルダ) の6〜8月の合計。
 露点温度は「東北地方沿岸気象官署時別値」フォルダの時別値CSV (1984年〜) にあります。
 
 使い方: python fog_days.py 〔モード〕 〔オプション〕   (モードを省略すると rh)
@@ -12,6 +12,10 @@ fog_plot.py と同じフォルダに置いて実行します (fog_plot.py の読
     python fog_days.py cond --sat-max 2 --dt-min -2 --dt-max 1   # さらに 気温−海面水温 が −2〜1℃ を加える
     python fog_days.py temps                       # 気温・海面水温・露点温度の年平均 (折れ線、右の軸)
     python fog_days.py gap                         # 海面水温−露点温度の年平均 (折れ線、右の軸。上ほど小さい向き)
+    python fog_days.py chart                       # 官署ごとの大きな画像 (5年移動平均・回帰直線・傾き・欠測つき)。条件は湿度≧95% かつ |気温−海面水温|≦0℃
+    python fog_days.py chart --rh-min 90 --dt-abs 1                     # 条件を変える
+    python fog_days.py chart --cond td --gap-max 0 --sat-max 2          # 露点温度の条件 (cond と同じ条件)
+    python fog_days.py chart --cond none --stations 八戸 宮古            # 霧日数だけ (条件の線なし)
     python fog_days.py temps --stations 八戸 宮古    # どのモードでも、官署を選べる
     python fog_days.py cond --save out/fog_days_cond.png   # PNGに保存
 
@@ -26,6 +30,11 @@ fog_plot.py と同じフォルダに置いて実行します (fog_plot.py の読
   temps  折れ線 (右の軸): 赤=気温、青=海面水温、緑=露点温度の、その年の6〜8月の平均 (3つがそろった時刻だけ)。縦軸は全官署で同じ範囲。
   gap    折れ線 (右の軸): その年の6〜8月の「海面水温 − 露点温度」の平均。上ほど差が小さい向きに反転してあり、
          棒と同じ向きに動けば「差が小さい年ほど霧日数が多い」。縦軸は全官署で同じ範囲。
+
+  chart  Colab のノートブックと同じ図。官署ごとに1枚の画像を out/ (--outdir) に保存する (--show で画面にも表示)。
+         --cond rh (既定): 毎時の相対湿度 ≧ --rh-min (既定95) かつ |気温−海面水温| ≦ --dt-abs (既定0) の時刻が1時間でもある日の日数。
+         --cond td: 海面水温−露点温度 ≦ --gap-max (既定0)、必要なら --sat-max、--dt-min、--dt-max を加えた条件の日数。
+         --cond none: 条件の線なし。 八戸の図には三沢 (三沢月別値霧日数.csv, --misawa) の線も重ねる。
 
 棒: 気象庁の霧日数。均質番号 (観測環境) が変わった年に▲を付け、最新の区間を濃い緑にします。
 タイトルの r: 霧日数と黒線 (または折れ線) の相関 (最新の区間 / そのうち --corr-from 年以降)。temps は相関を出しません。
@@ -45,7 +54,7 @@ import pandas as pd
 
 import fog_plot as fp
 
-MODES = ("rh", "cond", "temps", "gap")
+MODES = ("rh", "cond", "temps", "gap", "chart")
 LINES = (("Ta", "気温", "#cc3311"), ("SST", "海面水温", "#0077bb"), ("Td", "露点温度", "#228833"))
 XLABEL = "年  (灰色の帯: 観測が3時間おき以下の年 / 点線: 湿度の記録が変わった年 / ▲: 観測環境が変わった年)"
 
@@ -313,12 +322,41 @@ def run_gap(a, kiri, coast, stations):
     finish(fig, axs, a)
 
 
+# ---------------------------------------------------------------- chart
+def run_chart(a, kiri, coast, stations):
+    import fog_chart as fc
+    hourly, daily = fc.build_tables(fp.summer(fp.load(a.dir)), coast)
+    threshold, label, need = {}, "", ("n_Ta", "n_RH")
+    if a.cond == "rh":
+        mask = (hourly["RH"] >= a.rh_min) & (hourly["dT"].abs() <= a.dt_abs)
+        label = f"RH>={a.rh_min:g}% & |T-SST|<={a.dt_abs:g}K"
+    elif a.cond == "td":
+        mask = hourly["gap"] <= a.gap_max
+        parts = [f"SST-Td<={a.gap_max:g}K"]
+        if np.isfinite(a.sat_max):
+            mask &= hourly["sat"] <= a.sat_max
+            parts.append(f"T-Td<={a.sat_max:g}K")
+        mask &= (hourly["dT"] >= a.dt_min) & (hourly["dT"] <= a.dt_max)
+        if np.isfinite(a.dt_min) or np.isfinite(a.dt_max):
+            parts.append((f"{a.dt_min:g}K<=" if np.isfinite(a.dt_min) else "") + "T-SST" + (f"<={a.dt_max:g}K" if np.isfinite(a.dt_max) else ""))
+        label, need = " & ".join(parts), ("n_Ta", "n_Td")
+    if a.cond != "none":
+        threshold = fc.count_days(mask, hourly, daily, 1, (6, 7, 8), need)
+    fc.configure(a.kiri, a.misawa, outdir=a.outdir, show=a.show, threshold=threshold, label=label)
+    names = [s for s in (a.stations or fp.STATION_SST) if s in fc.processed]
+    if a.cond != "none":
+        print("条件:", label)
+        print("霧日数の最新の均質区間での比較:")
+        print(fc.compare_table(threshold).to_string(index=False))
+    fc.draw_all(names)
+
+
 # ---------------------------------------------------------------- main
 def main():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--dir", default=fp.SST_DIR, help="海面水温 *.txt のあるフォルダ")
     common.add_argument("--coast-dir", default=fp.COAST_DIR, help="沿岸官署の時別値CSVのフォルダ")
-    common.add_argument("--kiri", default=os.path.join(fp.HERE, "tohoku.csv"), help="霧日数の月別値CSV")
+    common.add_argument("--kiri", default=os.path.join(fp.HERE, "東北地方気象官署月別値霧日数.csv"), help="霧日数の月別値CSV")
     common.add_argument("--stations", nargs="*", help="官署名 (省略で全官署)")
     common.add_argument("--corr-from", type=int, default=2014, help="相関を取る最初の年 (湿度の記録が変わった後)")
     common.add_argument("--save", help="PNGの保存先 (省略で画面表示のみ)")
@@ -338,6 +376,17 @@ def main():
     q.add_argument("--dt-min", type=float, default=-np.inf, help="気温 − 海面水温 がこれ以上 (℃)。省略で使わない")
     q.add_argument("--dt-max", type=float, default=np.inf, help="気温 − 海面水温 がこれ以下 (℃)。省略で使わない")
     q.add_argument("--min-hours", type=int, default=1, help="1日にこの時間数以上 条件を満たせば、その日を数える")
+    q = sub.add_parser("chart", parents=[common], help="Colab のノートブックと同じ図 (官署ごとに1枚の画像)")
+    q.add_argument("--cond", choices=("rh", "td", "none"), default="rh", help="黒線の条件: rh=湿度と気温−海面水温 / td=露点温度 / none=なし")
+    q.add_argument("--rh-min", type=float, default=95, help="[rh] 相対湿度 ≧ この値 (%%)")
+    q.add_argument("--dt-abs", type=float, default=0, help="[rh] |気温−海面水温| ≦ この値 (℃)")
+    q.add_argument("--gap-max", type=float, default=0, help="[td] 海面水温 − 露点温度 ≦ この値 (℃)")
+    q.add_argument("--sat-max", type=float, default=np.inf, help="[td] 気温 − 露点温度 ≦ この値 (℃)。省略で使わない")
+    q.add_argument("--dt-min", type=float, default=-np.inf, help="[td] 気温 − 海面水温 ≧ この値 (℃)。省略で使わない")
+    q.add_argument("--dt-max", type=float, default=np.inf, help="[td] 気温 − 海面水温 ≦ この値 (℃)。省略で使わない")
+    q.add_argument("--misawa", default=os.path.join(fp.HERE, "三沢月別値霧日数.csv"), help="三沢の月別値CSV (八戸の図に重ねる。無ければ描かない)")
+    q.add_argument("--outdir", default=os.path.join(fp.HERE, "out"), help="画像の保存先フォルダ")
+    q.add_argument("--show", action="store_true", help="保存したあと、画面にも表示する")
     sub.add_parser("temps", parents=[common], help="気温・海面水温・露点温度の年平均")
     sub.add_parser("gap", parents=[common], help="海面水温−露点温度の年平均")
     argv = sys.argv[1:]
@@ -351,7 +400,7 @@ def main():
     if coast is None:
         raise SystemExit("沿岸官署のCSVが見つかりません: " + a.coast_dir)
     stations = [s for s in (a.stations or fp.STATION_SST) if s in set(kiri["station"])]
-    {"rh": run_rh, "cond": run_cond, "temps": run_temps, "gap": run_gap}[a.mode](a, kiri, coast, stations)
+    {"rh": run_rh, "cond": run_cond, "temps": run_temps, "gap": run_gap, "chart": run_chart}[a.mode](a, kiri, coast, stations)
 
 
 if __name__ == "__main__":
