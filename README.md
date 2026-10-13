@@ -15,7 +15,6 @@ python fog_plot.py                   # 湿度 × (気温−海面水温) の階�
 | `fog_plot.py` | 相対湿度 × (気温−海面水温) の階級ごとの、視程<1kmの出現率 (官署別) | `--each` 官署ごとに1枚、`--from-year`、`--hourly-only`、`--stations`、`--save-dir` |
 | `fog_plot_temp_sst.py` | 気温(または露点温度)(横)×海面水温(縦) を1℃ごとに区切った、視程<1kmの出現率 | `--x ta`(気温)/`td`(露点温度)、`--each`、`--from-year`、`--hourly-only` |
 | `fog_plot_ta_sst_period.py` | 上の図(気温×海面水温)を年代ごとに並べる。上段=出現率、下段=視程<1kmだった時間の数 | `--periods 1989 2000 2010 2020`、`--stations` |
-| `fog_plot_year_temp_low.py` | 視程<1kmだった時の、年(横)×温度(縦)のヒートマップ (上=気温、下=海面水温、色=回数) | `--stations`、`--from-year` |
 | `fog_plot_year.py` | 夏季(6〜8月)の年平均の折れ線 (傾きつき) | `--what temps`(気温・海面水温・露点温度)/`dt`(気温−海面水温)/`gap`(露点温度−海面水温) |
 | `fog_days.py` | 公式の霧日数(棒)に、条件を満たす日数や年平均(折れ線)を重ねる (官署別) | モード `rh` `cond` `temps` `gap` (下記) |
 
