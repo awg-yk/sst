@@ -23,6 +23,8 @@ SHOW = False                # True なら、保存したあと画面にも表示
 # 以下は configure() で設定する
 processed = {}                  # {官署: 年ごとの霧日数 DataFrame}
 threshold_data = {}             # {官署: 条件を満たす日数 DataFrame(year, total_fog_days)}
+temps_data = {}                 # {官署: 夏季の年平均 DataFrame(year, Ta, SST, Td)}。あれば右の軸に折れ線で重ねる
+TEMP_YLIM = None                # 右の軸 (気温・水温) の範囲。全官署で同じ
 THRESHOLD_LABEL = ""            # 黒線の凡例
 df_misawa_metar = pd.DataFrame(columns=["year", "total_fog_days"])
 df_misawa_combined = pd.DataFrame(columns=["year", "total_fog_days"])
@@ -165,13 +167,19 @@ def load_misawa(path):
     return annual('metar_fog'), annual('combined_fog')
 
 
-def configure(tohoku_path, misawa_path, outdir=None, show=False, threshold=None, label=""):
-    """霧日数と三沢を読み、条件の日数 threshold ({官署: DataFrame}) と凡例 label を設定する。"""
-    global processed, df_misawa_metar, df_misawa_combined, threshold_data, THRESHOLD_LABEL, OUTDIR, SHOW
+def configure(tohoku_path, misawa_path, outdir=None, show=False, threshold=None, label="", temps=None):
+    """霧日数と三沢を読み、条件の日数 threshold ({官署: DataFrame}) と凡例 label、気温・海面水温・露点温度の年平均 temps を設定する。"""
+    global processed, df_misawa_metar, df_misawa_combined, threshold_data, THRESHOLD_LABEL, OUTDIR, SHOW, temps_data, TEMP_YLIM
     processed = load_tohoku(tohoku_path)
     df_misawa_metar, df_misawa_combined = load_misawa(misawa_path)
     threshold_data = threshold or {}
     THRESHOLD_LABEL = label
+    temps_data = temps or {}
+    TEMP_YLIM = None
+    if temps_data:
+        allv = pd.concat([m[['Ta', 'SST', 'Td']] for m in temps_data.values()])
+        lo, hi = allv.min().min(), allv.max().max()
+        TEMP_YLIM = (lo - (hi - lo) * .05, hi + (hi - lo) * .6)   # 上を広く取って、折れ線が凡例に重ならないようにする
     SHOW = show
     if outdir:
         OUTDIR = outdir
@@ -371,7 +379,7 @@ def draw_segment_slope_labels(ax, labels, color='red'):
 def resolve_legend_overlap(ax, fig, labels, y_limit, pad_frac=0.025):
     """傾きラベルが凡例と重なりそうな場合、重ならなくなるまで縦軸の上限を広げる。
     戻り値: 最終的な y_limit（重なりがなければ元のまま）"""
-    legend = ax.get_legend()
+    legend = next((a.get_legend() for a in fig.axes if a.get_legend() is not None), None)   # 凡例は右の軸にあることもある
     if legend is None or not labels:
         return y_limit
     fig.canvas.draw()  # テキスト・凡例のサイズを確定させる
@@ -444,10 +452,13 @@ def add_gap_spans(ax, gaps, df, color='black'):
                         arrowprops=dict(arrowstyle='-', color=color, lw=1.2, shrinkA=0, shrinkB=0))
 
 
-def build_legend(ax, priority=None, ncol=1):
+def build_legend(ax, priority=None, ncol=1, twin=None):
     # ncol=2 のとき matplotlib は列優先で埋める。
     # 八戸の [MA, Trend, ▲, Combined, METAR] は 左列: MA・Trend・▲ / 右列: METAR+SPECIAL(実線)・METAR(破線) になる。
     handles, labels = ax.get_legend_handles_labels()
+    if twin is not None:       # 右の軸の折れ線も凡例に入れる (凡例は右の軸に付けて、折れ線より手前に出す)
+        h2, l2 = twin.get_legend_handles_labels()
+        handles, labels = handles + h2, labels + l2
     if priority:
         order = []
         for p in priority:
@@ -458,11 +469,11 @@ def build_legend(ax, priority=None, ncol=1):
     else:
         order = list(range(len(labels)))
 
-    ax.legend([handles[i] for i in order], [labels[i] for i in order],
+    (twin if twin is not None else ax).legend([handles[i] for i in order], [labels[i] for i in order],
               fontsize=18, loc='upper right', framealpha=0.9, ncol=ncol, markerscale=0.7)
 
 
-def decorate_axis(ax, panel_label, years_to_plot, max_val, legend_priority=None, ncol=1):
+def decorate_axis(ax, panel_label, years_to_plot, max_val, legend_priority=None, ncol=1, twin=None):
     ax.text(0.015, 0.93, panel_label, transform=ax.transAxes, fontsize=32,
             ha='left', va='top', color='black')
 
@@ -485,7 +496,7 @@ def decorate_axis(ax, panel_label, years_to_plot, max_val, legend_priority=None,
     ax.set_xticklabels([str(years_to_plot[i]) for i in tick_positions],
                        rotation=0, ha='center', fontsize=25)
     ax.grid(True, alpha=0.3)
-    build_legend(ax, priority=legend_priority, ncol=ncol)
+    build_legend(ax, priority=legend_priority, ncol=ncol, twin=twin)
     return y_limit
 
 
@@ -499,6 +510,20 @@ def overlay_misawa(ax, df_misawa, year_to_idx, color='black', **plot_kwargs):
 
 
 trend_results = {}
+
+
+def draw_temps(ax, m, year_to_idx):
+    """夏季の気温・海面水温・露点温度の年平均を、右の軸に折れ線で重ねる。右の軸を返す。"""
+    ax2 = ax.twinx()
+    for col, label, color, marker in (('Ta', 'Air temperature', '#8c510a', 'o'), ('SST', 'SST', '#01665e', 's'),
+                                      ('Td', 'Dew point', '#636363', '^')):
+        d = m.assign(x=m['year'].map(year_to_idx)).dropna(subset=['x', col]).sort_values('x')
+        ax2.plot(d['x'], d[col], color=color, marker=marker, markersize=5, linewidth=1.8, label=label)
+    ax2.set_ylabel('Temperature (℃)', fontsize=28)
+    ax2.tick_params(axis='y', labelsize=26)
+    if TEMP_YLIM:
+        ax2.set_ylim(*TEMP_YLIM)
+    return ax2
 
 
 def draw_location(loc_name):
@@ -546,14 +571,19 @@ def draw_location(loc_name):
         overlays += [m_metar, m_comb]
         priority_labels += ['Misawa (METAR+SPECIAL)', 'Misawa (METAR)']
 
+    twin = None
+    if loc_name in temps_data:
+        twin = draw_temps(ax, temps_data[loc_name], year_to_idx)
+        priority_labels += ['Air temperature', 'SST', 'Dew point']
+
     priority_labels.append(ENV_LABEL)
 
     if overlays:
         max_val = max([max_val] + [d['total_fog_days'].max() for d in overlays if not d.empty])
 
-    ncol = 2 if loc_name == '八戸' else 1
+    ncol = 2 if loc_name == '八戸' or twin is not None else 1
     y_limit = decorate_axis(ax, f'{loc_name}', years_to_plot, max_val,
-                            legend_priority=priority_labels, ncol=ncol)
+                            legend_priority=priority_labels, ncol=ncol, twin=twin)
 
     # 傾きラベルが凡例と重なる場合は、重ならなくなるまで縦軸の上限を広げてから描く
     slope_labels = compute_segment_slope_labels(df_loc, fits, extra_dfs=overlays)

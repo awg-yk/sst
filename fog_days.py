@@ -16,6 +16,7 @@ fog_plot.py と同じフォルダに置いて実行します (fog_plot.py の読
     python fog_days.py chart --rh-min 90 --dt-abs 1                     # 条件を変える
     python fog_days.py chart --cond td --gap-max 0 --sat-max 2          # 露点温度の条件 (cond と同じ条件)
     python fog_days.py chart --cond none --stations 八戸 宮古            # 霧日数だけ (条件の線なし)
+    python fog_days.py chart --cond none --temps                        # 霧日数に、気温・海面水温・露点温度の年平均 (右の軸) を重ねる
     python fog_days.py temps --stations 八戸 宮古    # どのモードでも、官署を選べる
     python fog_days.py temps --per-fig 2           # 1つの図に2官署ずつ (既定は3官署ずつ。図は官署の数だけ複数のウィンドウに分かれて表示される)
     python fog_days.py cond --save out/fog_days_cond.png   # PNGに保存
@@ -35,7 +36,7 @@ fog_plot.py と同じフォルダに置いて実行します (fog_plot.py の読
   chart  Colab のノートブックと同じ図。官署ごとに1枚の画像を out/ (--outdir) に保存する (--show で画面にも表示)。
          --cond rh (既定): 毎時の相対湿度 ≧ --rh-min (既定95) かつ |気温−海面水温| ≦ --dt-abs (既定0) の時刻が1時間でもある日の日数。
          --cond td: 海面水温−露点温度 ≦ --gap-max (既定0)、必要なら --sat-max、--dt-min、--dt-max を加えた条件の日数。
-         --cond none: 条件の線なし。 八戸の図には三沢 (三沢月別値霧日数.csv, --misawa) の線も重ねる。
+         --cond none: 条件の線なし。 --temps: 夏季の気温・海面水温・露点温度の年平均を右の軸の折れ線で重ねる (--cond と同時に使える)。 八戸の図には三沢 (三沢月別値霧日数.csv, --misawa) の線も重ねる。
 
 棒: 気象庁の霧日数。均質番号 (観測環境) が変わった年に▲を付け、最新の区間を濃い緑にします。
 タイトルの r: 霧日数と黒線 (または折れ線) の相関 (最新の区間 / そのうち --corr-from 年以降)。temps は相関を出しません。
@@ -363,7 +364,11 @@ def run_chart(a, kiri, coast, stations):
         label, need = " & ".join(parts), ("n_Ta", "n_Td")
     if a.cond != "none":
         threshold = fc.count_days(mask, hourly, daily, 1, (6, 7, 8), need)
-    fc.configure(a.kiri, a.misawa, outdir=a.outdir, show=a.show, threshold=threshold, label=label)
+    temps = None
+    if a.temps:     # 夏季の気温・海面水温・露点温度の年平均 (3つがそろった時刻だけ)
+        m = yearly(fp.summer(fp.load(a.dir)), coast, ["Ta", "SST", "Td"], lambda d: d[["Ta", "SST", "Td"]])
+        temps = {st: m.xs(st, level=0).reset_index().rename(columns={"yr": "year"}) for st in m.index.get_level_values(0).unique()}
+    fc.configure(a.kiri, a.misawa, outdir=a.outdir, show=a.show, threshold=threshold, label=label, temps=temps)
     names = [s for s in (a.stations or fp.STATION_SST) if s in fc.processed]
     if a.cond != "none":
         print("条件:", label)
@@ -406,6 +411,7 @@ def main():
     q.add_argument("--sat-max", type=float, default=np.inf, help="[td] 気温 − 露点温度 ≦ この値 (℃)。省略で使わない")
     q.add_argument("--dt-min", type=float, default=-np.inf, help="[td] 気温 − 海面水温 ≧ この値 (℃)。省略で使わない")
     q.add_argument("--dt-max", type=float, default=np.inf, help="[td] 気温 − 海面水温 ≦ この値 (℃)。省略で使わない")
+    q.add_argument("--temps", action="store_true", help="夏季の気温・海面水温・露点温度の年平均を、右の軸に折れ線で重ねる (--cond と同時に使える)")
     q.add_argument("--misawa", default=os.path.join(fp.HERE, "三沢月別値霧日数.csv"), help="三沢の月別値CSV (八戸の図に重ねる。無ければ描かない)")
     q.add_argument("--outdir", default=os.path.join(fp.HERE, "out"), help="画像の保存先フォルダ")
     q.add_argument("--show", action="store_true", help="保存したあと、画面にも表示する")
