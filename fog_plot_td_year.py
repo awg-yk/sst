@@ -37,7 +37,7 @@ def trend_line(ax, m, col, color, label):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--dir", default=fp.HERE, help="海面水温 *.txt のあるフォルダ")
+    p.add_argument("--dir", default=fp.SST_DIR, help="海面水温 *.txt のあるフォルダ")
     p.add_argument("--coast-dir", default=fp.COAST_DIR, help="沿岸官署の時別値CSVのフォルダ")
     p.add_argument("--dew-dir", default=td.DEW_DIR, help="露点温度の時別値CSVのフォルダ")
     p.add_argument("--from-year", type=int, default=1982, help="この年以降を使う (既定 1982。露点温度は1984年から)")

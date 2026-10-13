@@ -70,7 +70,7 @@ def hourly_note(start, y0, y1):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--dir", default=fp.HERE, help="海面水温 *.txt のあるフォルダ")
+    p.add_argument("--dir", default=fp.SST_DIR, help="海面水温 *.txt のあるフォルダ")
     p.add_argument("--coast-dir", default=fp.COAST_DIR, help="沿岸官署の時別値CSVのフォルダ")
     p.add_argument("--periods", type=int, nargs="+", default=[1989, 2000, 2010, 2020], help="年代の区切りとなる開始年 (小さい順)")
     p.add_argument("--stations", nargs="*", help="官署名 (省略で沿岸10官署)")

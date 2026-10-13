@@ -35,7 +35,7 @@ def station_figure(v, name, norm):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--dir", default=fp.HERE, help="海面水温 *.txt のあるフォルダ")
+    p.add_argument("--dir", default=fp.SST_DIR, help="海面水温 *.txt のあるフォルダ")
     p.add_argument("--coast-dir", default=fp.COAST_DIR, help="沿岸官署の時別値CSVのフォルダ")
     p.add_argument("--from-year", type=int, help="この年以降だけ使う")
     p.add_argument("--hourly-only", action="store_true", help="官署ごとに、視程が毎時になった年以降だけを使う")

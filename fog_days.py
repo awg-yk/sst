@@ -82,7 +82,7 @@ def teacher_days(h):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--dir", default=fp.HERE, help="海面水温 *.txt のあるフォルダ")
+    p.add_argument("--dir", default=fp.SST_DIR, help="海面水温 *.txt のあるフォルダ")
     p.add_argument("--coast-dir", default=fp.COAST_DIR)
     p.add_argument("--kiri", default=os.path.join(fp.HERE, "tohoku.csv"), help="霧日数の月別値CSV")
     p.add_argument("--stations", nargs="*", help="官署名 (省略で全官署)")

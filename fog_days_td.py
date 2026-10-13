@@ -35,7 +35,7 @@ def yearly_sst_minus_td(sst, coast, dew):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--dir", default=fp.HERE, help="海面水温 *.txt のあるフォルダ")
+    p.add_argument("--dir", default=fp.SST_DIR, help="海面水温 *.txt のあるフォルダ")
     p.add_argument("--coast-dir", default=fp.COAST_DIR)
     p.add_argument("--dew-dir", default=td.DEW_DIR, help="露点温度の時別値CSVのフォルダ")
     p.add_argument("--kiri", default=os.path.join(fp.HERE, "tohoku.csv"), help="霧日数の月別値CSV")

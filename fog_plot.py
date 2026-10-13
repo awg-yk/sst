@@ -10,7 +10,7 @@
 
 必要: pip install numpy pandas matplotlib
 データ (このファイルと同じフォルダに置く):
-    海面水温   *.txt                  (気象庁 海面水温 日別値, 12海域)
+    海面水温   東北沿岸域の海面水温/*.txt  (気象庁 海面水温 日別値, 12海域)
     沿岸官署   東北地方沿岸気象官署時別値/*.csv  (気象庁 時別値, 年ごと)
 
 図: 官署ごとに、マスの色=視程<1kmだった回数。マス内の数字は 上=視程<1kmだった回数 / 下=該当した回数。
@@ -28,6 +28,7 @@ import numpy as np
 import pandas as pd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+SST_DIR = os.path.join(HERE, "東北沿岸域の海面水温")           # 海面水温 *.txt (気象庁 日別値, 12海域)
 COAST_DIR = os.path.join(HERE, "東北地方沿岸気象官署時別値")  # 気象庁の時別値(1時間ごと)
 
 
@@ -41,7 +42,7 @@ def setup_font():
     plt.rcParams["axes.unicode_minus"] = False
 
 
-def load(data_dir=HERE):
+def load(data_dir=SST_DIR):
     """全海域を読み込み、日付×海域名の DataFrame を返す。速報値(P)も含む。"""
     cols = {}
     for path in sorted(glob.glob(os.path.join(data_dir, "*.txt"))):
@@ -268,7 +269,7 @@ def fog_station_figure(v):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--dir", default=HERE, help="海面水温 *.txt のあるフォルダ")
+    p.add_argument("--dir", default=SST_DIR, help="海面水温 *.txt のあるフォルダ")
     p.add_argument("--coast-dir", default=COAST_DIR, help="沿岸官署の時別値CSVのフォルダ")
     p.add_argument("--from-year", type=int, help="この年以降だけ使う (官署ごとの毎時になった年と合わせ、遅い方を使う)")
     p.add_argument("--hourly-only", action="store_true", help="官署ごとに、視程が毎時になった年以降だけを使う (既定は1982年からの全期間。視程の記録は1989年から)")
