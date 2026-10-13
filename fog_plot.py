@@ -4,6 +4,7 @@
     python fog_plot.py                  # 全期間
     python fog_plot.py --from-year 2020 # 2020年以降だけ
     python fog_plot.py --hourly-only    # 官署ごとに、視程が毎時になった年以降だけ
+    python fog_plot.py --each           # 官署ごとに1枚ずつ表示 (--stations 八戸 宮古 で官署を選ぶ。--save-dir out でPNG保存)
 
 既定は1982年からの全期間です (視程の記録は1989年から。1989年以前は図に入りません。
 2019年以前は視程が3〜6時間おきなど間引かれている官署が多く、観測時刻の偏りがあります)。
@@ -267,17 +268,48 @@ def fog_station_figure(v):
     return fig
 
 
+def fog_station_figure_each(v, name, norm):
+    """1官署だけの 相対湿度 × 気温−海面水温 の図 (Figure)。色の基準 norm は10官署並べた図と同じ。"""
+    n, k = fog_table(v[v["station"] == name])
+    fig, ax = plt.subplots(figsize=(8, 6.5))
+    sm = fog_heat(ax, n, k, f"{name} (海域: {STATION_SST[name]})", norm, plt.get_cmap("magma_r"))
+    fig.colorbar(sm, ax=ax).set_label("視程<1kmの出現率 (%)")
+    fig.text(.01, .004, FOG_NOTE, fontsize=7)
+    fig.tight_layout(rect=(0, .05, 1, 1))
+    return fig
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--dir", default=SST_DIR, help="海面水温 *.txt のあるフォルダ")
     p.add_argument("--coast-dir", default=COAST_DIR, help="沿岸官署の時別値CSVのフォルダ")
     p.add_argument("--from-year", type=int, help="この年以降だけ使う (官署ごとの毎時になった年と合わせ、遅い方を使う)")
     p.add_argument("--hourly-only", action="store_true", help="官署ごとに、視程が毎時になった年以降だけを使う (既定は1982年からの全期間。視程の記録は1989年から)")
+    p.add_argument("--each", action="store_true", help="官署ごとに1枚ずつ表示する (色の基準は10官署並べた図と同じ)")
+    p.add_argument("--stations", nargs="*", help="--each のとき、官署名 (省略で沿岸10官署)")
+    p.add_argument("--save-dir", help="--each のとき、画面に出さずPNGをこのフォルダに保存する")
     a = p.parse_args()
     setup_font()
     _, v = fog_valid(summer(load(a.dir)), a)
-    fog_station_figure(v)
-    plt.show()
+    if not a.each:
+        fog_station_figure(v)
+        plt.show()
+        return
+    allst = [s for s in STATION_SST if s in set(v["station"])]
+    norm = fog_norm([fog_table(v[v["station"] == s]) for s in allst])
+    for name in a.stations or allst:
+        if name not in allst:
+            print("データがありません:", name)
+            continue
+        fig = fog_station_figure_each(v, name, norm)
+        if a.save_dir:
+            os.makedirs(a.save_dir, exist_ok=True)
+            path = os.path.join(a.save_dir, f"fog_{name}.png")
+            fig.savefig(path, dpi=130)
+            print("保存:", path)
+            plt.close(fig)
+        else:
+            plt.show()
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 """気温(横軸) × 海面水温(縦軸) の視程<1kmの図を、年代ごとに並べて示す図 (官署ごとに1枚)。
-上段: 視程<1kmの出現率 (fog_plot_ta_sst.py と同じ図)。 下段: 視程<1kmだった時間の数 (マス内に数字も書く)。
+上段: 視程<1kmの出現率 (fog_plot_temp_sst.py と同じ図)。 下段: 視程<1kmだった時間の数 (マス内に数字も書く)。
 色の濃い部分が年代とともに減るか、右上(気温・海面水温が高いほう)へ移るかを見る。
-fog_plot.py と fog_plot_ta_sst.py と同じフォルダに置いて実行します。
+fog_plot.py と fog_plot_temp_sst.py と同じフォルダに置いて実行します。
 
     python fog_plot_ta_sst_period.py                         # 官署ごとに1枚 (年代を横に並べる) を順に画面に表示
     python fog_plot_ta_sst_period.py --stations 宮古 八戸     # 官署を指定
@@ -23,7 +23,7 @@ from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
 
 import fog_plot as fp
-import fog_plot_ta_sst as ts
+import fog_plot_temp_sst as ts
 
 
 def period_label(bounds, i, last_year):
