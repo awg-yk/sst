@@ -37,6 +37,7 @@ python fog_plot.py                   # 湿度 × (気温−海面水温) の階�
 `fog_days.py chart` は、v5 のノートブックと同じ図を Python だけで出します (Google Drive へのアップロードは不要)。
 
 - `fog_days_claude_v5.ipynb`: 時別値から、湿度と気温−海面水温の条件を満たす日数を、スライダーで変えながら霧日数に重ねる。
+- `fog_days_claude_climate.ipynb`: 霧日数のグラフ (`夏季の霧日数(東北地方claude_v5).ipynb` と同じ形式、1セル) に、夏季の気温・海面水温・露点温度の年平均を右の軸の折れ線で追加したもの。条件の線は、これまでどおり `days_year_*.dat` を使う。`SHOW_CLIMATE = False` で折れ線を消せる。
 - `fog_days_claude_td.ipynb`: v5 と同じ形式で、露点温度を使った条件 (海面水温−露点温度、必要なら気温−露点温度・気温−海面水温) を、プルダウンやスライダーで変える。
 - `fog_days_claude_daily.ipynb`: 日別値 (`東北地方沿岸気象官署日別値/`) で同じことをする。
 
