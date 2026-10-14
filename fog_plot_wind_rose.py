@@ -32,7 +32,7 @@ fp.setup_font()
 fs = a.fontsize
 plt.rcParams.update({'font.size': fs, 'axes.unicode_minus': False})
 fig = plt.figure(figsize=(a.size_cm[0] / 2.54, a.size_cm[1] / 2.54))
-ax = fig.add_axes([.14, .09, .72, .72], projection='polar')
+ax = fig.add_axes([.22, .07, .72, .72], projection='polar')
 dirs = np.arange(10, 361, 10)
 cols = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red']
 for i, (lab, ys) in enumerate(sets):
@@ -45,12 +45,13 @@ for i, (lab, ys) in enumerate(sets):
 ax.set_theta_zero_location('N')
 ax.set_theta_direction(-1)
 ax.set_xticks(np.deg2rad(np.arange(0, 360, 45)))
-ax.set_xticklabels(['北', '北東', '東', '南東', '南', '南西', '西', '北西'])
+ax.set_xticklabels(['北', '北東', '東', '南東', '南', '南西', '西', '北西'], fontsize=fs * 1.2, fontweight='bold')
+ax.tick_params(axis='x', pad=8)
 ax.set_rlabel_position(-22.5)
 ax.tick_params(axis='y', labelsize=fs * .8)
 ax.grid(True, ls='--', alpha=.7)
-ax.set_title('三沢飛行場 6〜8月の風向頻度(%)', fontsize=fs, fontweight='bold', y=1.12)
-fig.legend(loc='upper left', bbox_to_anchor=(0, .93), fontsize=fs * .7)
+fig.suptitle('三沢飛行場 6〜8月の風向頻度(%)', fontsize=fs * 1.15, fontweight='bold', y=.985)
+fig.legend(loc='upper left', bbox_to_anchor=(0, .9), fontsize=fs * .85, prop={'weight': 'bold', 'size': fs * .85}, handlelength=1.5)
 if a.save:
     fig.savefig(a.save, dpi=300)
 else:
