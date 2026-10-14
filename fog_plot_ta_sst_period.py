@@ -96,11 +96,11 @@ def main():
                 ax.set_title(label, fontsize=fs * 1.1, pad=4)
                 ax.set_xlabel("気温 (℃)", fontsize=fs)
                 ax.set_ylabel("海面水温 (℃)" if i == 0 else "", fontsize=fs)
-            fig.tight_layout(pad=.9, w_pad=.5, rect=(0, 0, .93, 1))
+            fig.tight_layout(pad=.9, w_pad=.5, rect=(0, 0, .885, 1))
             bb = axs[0, -1].get_position()
-            cb = fig.colorbar(sm, cax=fig.add_axes([.945, bb.y0 + .08 * bb.height, .012, .84 * bb.height]))
-            cb.set_label("視程<1kmの出現率 (%)", fontsize=fs * .85)
-            cb.ax.tick_params(labelsize=fs * .85)
+            cb = fig.colorbar(sm, cax=fig.add_axes([.915, bb.y0 + .08 * bb.height, .014, .84 * bb.height]))
+            cb.set_label("視程<1kmの出現率 (%)", fontsize=fs * .8)
+            cb.ax.tick_params(labelsize=fs * .8)
         else:
             fig, axs = plt.subplots(1, len(bounds), figsize=(6.4 * len(bounds) + 1.2, 7), squeeze=False)
             for i in range(len(bounds)):
