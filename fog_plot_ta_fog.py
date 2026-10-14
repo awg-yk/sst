@@ -55,7 +55,7 @@ def poster_figure(data, names, bounds, label, a):
     plt.rcParams.update({"font.size": fs, "axes.labelsize": fs, "xtick.labelsize": fs, "ytick.labelsize": fs, "axes.titlesize": fs * 1.2})
     ncol = 3
     nrow = (len(names) + ncol - 1) // ncol
-    fig, axs = plt.subplots(nrow, ncol, figsize=(a.size_cm[0] / 2.54, a.size_cm[1] / 2.54), sharey=True, squeeze=False)
+    fig, axs = plt.subplots(nrow, ncol, figsize=(a.size_cm[0] / 2.54, a.size_cm[1] / 2.54), sharex=True, sharey=True, squeeze=False)   # 横軸も全官署でそろえる
     last_year = max(int(data[s][0].max()) for s in names)
     handles = {}
     for ax, s in zip(axs.ravel(), names):
@@ -74,8 +74,12 @@ def poster_figure(data, names, bounds, label, a):
             handles[i] = (col, f"{b0}〜{end}年")
         ax.set_title(s, pad=4)
         ax.grid(alpha=.3)
-        ax.locator_params(axis="x", nbins=4)
         ax.locator_params(axis="y", nbins=4)
+    xmin = min(float(data[s][1].min()) for s in names)
+    xmax = max(float(data[s][1].max()) for s in names)
+    lo, hi = int(np.floor(xmin / 2)) * 2, int(np.ceil(xmax / 2)) * 2    # 2℃刻みの目盛りに合わせた共通の範囲
+    axs[0, 0].set_xlim(lo - .3, hi + .3)
+    axs[0, 0].set_xticks(range(lo, hi + 1, 2))
     spare = list(axs.ravel()[len(names):])
     for ax in spare:
         ax.axis("off")
@@ -87,8 +91,9 @@ def poster_figure(data, names, bounds, label, a):
         for c in range(ncol):
             ax = axs[r, c]
             below_empty = r + 1 >= nrow or not axs[r + 1, c].axison
-            if ax.axison and below_empty:       # 下にパネルが無い列にも、横軸の名前を付ける
+            if ax.axison and below_empty:       # 下にパネルが無い列にも、横軸の名前と目盛りの数字を付ける
                 ax.set_xlabel(f"{label} (℃)")
+                ax.tick_params(labelbottom=True)
     for r in range(nrow):
         axs[r, 0].set_ylabel("霧日数 (日)")
     fig.tight_layout(pad=.4, w_pad=.6, h_pad=.8)
