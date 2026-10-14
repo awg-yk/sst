@@ -83,17 +83,18 @@ def main():
         ys, xs = np.where(total.values > 0)
         clo = max(lo, min(total.index[ys.min()], total.index[xs.min()]) - 1)
         chi = min(hi, max(total.index[ys.max()], total.index[xs.max()]) + 1)
-        fig, axs = plt.subplots(1, len(bounds), figsize=(6.4 * len(bounds) + 1.2, 7), squeeze=False)
+        fig, axs = plt.subplots(1, len(bounds), figsize=(max(6.4 * len(bounds) + 1.2, 11), 7.6), squeeze=False)
         for i in range(len(bounds)):
             end = bounds[i + 1] - 1 if i + 1 < len(bounds) else last_year
             n = tabs[(s, i)].loc[clo:chi, clo:chi]
             heat(axs[0, i], n, f"{s} {bounds[i]}〜{end}年 ({end - bounds[i] + 1}年)\n該当 {int(n.values.sum())}時間", norm, cmap)
             axs[0, i].title.set_fontsize(10)
-        fig.tight_layout(rect=(0, .06, .94, 1))
+        right = .94 if len(bounds) >= 3 else .86   # 年代が少ないと図が細くなるので、色の目盛りの分の余白を広くとる
+        fig.tight_layout(rect=(0, .08, right, 1))
         fig.text(.01, .004, "色とマス内の数字: その気温・海面水温の組み合わせだった時間 (夏季6〜8月、気温と海面水温がそろった時刻。視程の条件なし)。空白=該当なし。"
                  "\n破線=気温と海面水温が等しい。目盛りはマスの境目 (各マスは例えば16.0℃以上17.0℃未満)。年代ごとの年数が違うので、年数が短い年代は時間数が少なくなる。", fontsize=8)
         bb = axs[0, -1].get_position()
-        fig.colorbar(ScalarMappable(norm=norm, cmap=cmap), cax=fig.add_axes([.955, bb.y0 + .1 * bb.height, .012, .8 * bb.height])).set_label("時間数 (時間)", fontsize=9)
+        fig.colorbar(ScalarMappable(norm=norm, cmap=cmap), cax=fig.add_axes([right + .015, bb.y0 + .1 * bb.height, .015, .8 * bb.height])).set_label("時間数 (時間)", fontsize=9)
         if a.save_dir:
             os.makedirs(a.save_dir, exist_ok=True)
             path = os.path.join(a.save_dir, f"fog_ta_sst_count_{s}.png")
