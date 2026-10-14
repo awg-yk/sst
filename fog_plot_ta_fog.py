@@ -48,12 +48,63 @@ def load_temps(path):
     return out
 
 
+def poster_figure(data, names, bounds, label, a):
+    """ポスター用の図: 官署を2×3に並べ、年代ごとに色分けして回帰直線を引く。凡例は空いたパネルに1つだけ置く。
+    貼り付けるサイズ (--size-cm) で描くので、文字の大きさ (pt) は、そのまま印刷の大きさになる。"""
+    fs = a.fontsize
+    plt.rcParams.update({"font.size": fs, "axes.labelsize": fs, "xtick.labelsize": fs, "ytick.labelsize": fs, "axes.titlesize": fs * 1.2})
+    ncol = 3
+    nrow = (len(names) + ncol - 1) // ncol
+    fig, axs = plt.subplots(nrow, ncol, figsize=(a.size_cm[0] / 2.54, a.size_cm[1] / 2.54), sharey=True, squeeze=False)
+    last_year = max(int(data[s][0].max()) for s in names)
+    handles = {}
+    for ax, s in zip(axs.ravel(), names):
+        yr, x, y, h = data[s]
+        pid = np.searchsorted(bounds, yr, side="right") - 1
+        for i, b0 in enumerate(bounds):
+            mk = pid == i
+            if mk.sum() < 3:
+                continue
+            end = bounds[i + 1] - 1 if i + 1 < len(bounds) else last_year
+            col = PERIOD_COLORS[i % len(PERIOD_COLORS)]
+            slope, icpt = np.polyfit(x[mk], y[mk], 1)
+            ax.scatter(x[mk], y[mk], s=fs * 2.2, color=col, zorder=2, alpha=.9)
+            xs = np.array([x[mk].min(), x[mk].max()])
+            ax.plot(xs, slope * xs + icpt, color=col, lw=fs / 7, zorder=3)
+            handles[i] = (col, f"{b0}〜{end}年")
+        ax.set_title(s, pad=4)
+        ax.grid(alpha=.3)
+        ax.locator_params(axis="x", nbins=4)
+        ax.locator_params(axis="y", nbins=4)
+    spare = list(axs.ravel()[len(names):])
+    for ax in spare:
+        ax.axis("off")
+    from matplotlib.lines import Line2D
+    items = [Line2D([0], [0], marker="o", color=c, lw=fs / 7, markersize=fs / 2.2, label=t) for _, (c, t) in sorted(handles.items())]
+    leg_ax = spare[0] if spare else axs[0, -1]
+    leg_ax.legend(handles=items, loc="center", fontsize=fs * .95, frameon=False, title="年代 (直線は年代ごとの回帰直線)", title_fontsize=fs * .8)
+    for r in range(nrow):
+        for c in range(ncol):
+            ax = axs[r, c]
+            below_empty = r + 1 >= nrow or not axs[r + 1, c].axison
+            if ax.axison and below_empty:       # 下にパネルが無い列にも、横軸の名前を付ける
+                ax.set_xlabel(f"{label} (℃)")
+    for r in range(nrow):
+        axs[r, 0].set_ylabel("霧日数 (日)")
+    fig.tight_layout(pad=.4, w_pad=.6, h_pad=.8)
+    return fig
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--temps", default=TEMP_CSV, help="3か月平均気温のCSV")
     p.add_argument("--kiri", default=os.path.join(fp.HERE, "東北地方気象官署月別値霧日数.csv"), help="霧日数の月別値CSV")
     p.add_argument("--what", nargs="*", choices=list(WHAT), default=list(WHAT), help="横軸の気温 (省略で3種類すべて)")
     p.add_argument("--periods", type=int, nargs="+", help="年代の区切りとなる開始年 (小さい順)。指定すると、年代ごとに色分けして回帰直線を引く")
+    p.add_argument("--stations", nargs="*", help="官署名 (省略で、データのある官署すべて)")
+    p.add_argument("--poster", action="store_true", help="ポスター用: 官署を2×3に並べ、文字を大きくし、凡例を空いたパネルに1つだけ置く (--periods と一緒に使う)")
+    p.add_argument("--size-cm", type=float, nargs=2, default=[40, 22], metavar=("幅", "高さ"), help="--poster のときの、貼り付ける大きさ (cm)。既定 40 22")
+    p.add_argument("--fontsize", type=float, default=24, help="--poster のときの、目盛りの文字の大きさ (pt)。既定24")
     p.add_argument("--highlight", type=int, help="黒で印をつける年 (省略すると印をつけない)")
     p.add_argument("--save-dir", help="画面に出さずPNGをこのフォルダに保存する")
     a = p.parse_args()
@@ -73,7 +124,12 @@ def main():
             yrs = sorted(set(t) & set(k.index))
             if len(yrs) >= 10:
                 data[s] = (np.array(yrs), np.array([t[y] for y in yrs]), k.loc[yrs, "kiri"].values, k.loc[yrs, "homog"].values)
-        names = list(data)
+        names = [n for n in (a.stations or fp.STATION_SST) if n in data]
+        if a.poster:
+            if not a.periods:
+                raise SystemExit("--poster は --periods と一緒に使います (例: --periods 1931 1960 1990 2010)")
+            figs.append((poster_figure(data, names, sorted(a.periods), label, a), f"fog_ta_fog_{key}_poster.png"))
+            continue
         fig, axs = panels(names)
         for ax in axs.ravel():
             ax.sharex(axs.ravel()[0])

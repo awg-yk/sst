@@ -52,6 +52,9 @@ def main():
     p.add_argument("--coast-dir", default=fp.COAST_DIR, help="沿岸官署の時別値CSVのフォルダ")
     p.add_argument("--periods", type=int, nargs="+", default=[1989, 2000, 2010, 2020], help="年代の区切りとなる開始年 (小さい順)")
     p.add_argument("--stations", nargs="*", help="官署名 (省略で沿岸10官署)")
+    p.add_argument("--poster", action="store_true", help="ポスター用: マス内の数字と下の注記をなくし、文字を大きくして、--size-cm の大きさで描く")
+    p.add_argument("--size-cm", type=float, nargs=2, default=[40, 12.5], metavar=("幅", "高さ"), help="--poster のときの、貼り付ける大きさ (cm)。既定 40 12.5")
+    p.add_argument("--fontsize", type=float, default=22, help="--poster のときの、目盛りの文字の大きさ (pt)。既定22")
     p.add_argument("--save-dir", help="画面に出さずPNGをこのフォルダに保存する")
     a = p.parse_args()
 
@@ -77,23 +80,45 @@ def main():
     for s in names:
         total = sum(tabs[(s, i)][1] for i in range(len(bounds)))
         clo, chi = crop(total)
-        fig, axs = plt.subplots(1, len(bounds), figsize=(6.4 * len(bounds) + 1.2, 7), squeeze=False)
-        for i in range(len(bounds)):
-            n, k = (t.loc[clo:chi, clo:chi] for t in tabs[(s, i)])
-            label, y0, y1 = period_label(bounds, i, last_year)
-            head = f"{s} {label} ({hourly_note(start.get(s), y0, y1)})\n該当{int(n.values.sum())}時間, 視程<1km {int(k.values.sum())}時間"
-            sm = ts.heat(axs[0, i], n, k, head, norm, cmap, numbers=True)
-            axs[0, i].title.set_fontsize(10)
-        fig.tight_layout(rect=(0, .07, .94, 1))
-        fig.text(.01, .004,
-                 "マス内の数字: 上=視程<1kmだった時間 / 下=該当した時間。色=視程<1kmの出現率 (上÷下)。灰色=視程<1kmが0回、または該当した時間が40時間未満。空白=該当なし。"
-                 f"\n破線=気温と海面水温が等しい。目盛りはマスの境目 (各マスは例えば16.0℃以上17.0℃未満)。{s}は視程が毎時になった年={start.get(s) or '不明'} (観測の自動化 {fp.AUTOMATION.get(s, '不明')}、気象観測統計指針 表3.4－6。それ以前は目視で間引かれた時刻だけの観測)。",
-                 fontsize=8)
-        bb = axs[0, -1].get_position()
-        fig.colorbar(sm, cax=fig.add_axes([.955, bb.y0 + .1 * bb.height, .012, .8 * bb.height])).set_label("視程<1kmの出現率 (%)", fontsize=9)
+        if a.poster:
+            fs = a.fontsize
+            fig, axs = plt.subplots(1, len(bounds), figsize=(a.size_cm[0] / 2.54, a.size_cm[1] / 2.54), squeeze=False, sharey=True)
+            for i in range(len(bounds)):
+                n, k = (t.loc[clo:chi, clo:chi] for t in tabs[(s, i)])
+                label, y0, y1 = period_label(bounds, i, last_year)
+                sm = ts.heat(axs[0, i], n, k, label, norm, cmap, numbers=False)
+                ax = axs[0, i]
+                ax.tick_params(labelsize=fs)
+                ticks = [t for t in range(-(-clo // 5) * 5, chi + 2, 5)]   # 5℃ごとの目盛り (隣のパネルと文字がぶつからないよう、端は避ける)
+                ticks = [t for t in ticks if clo < t < chi + 1]
+                ax.set_xticks(ticks)
+                ax.set_yticks(ticks)
+                ax.set_title(label, fontsize=fs * 1.1, pad=4)
+                ax.set_xlabel("気温 (℃)", fontsize=fs)
+                ax.set_ylabel("海面水温 (℃)" if i == 0 else "", fontsize=fs)
+            fig.tight_layout(pad=.9, w_pad=.5, rect=(0, 0, .93, 1))
+            bb = axs[0, -1].get_position()
+            cb = fig.colorbar(sm, cax=fig.add_axes([.945, bb.y0 + .08 * bb.height, .012, .84 * bb.height]))
+            cb.set_label("視程<1kmの出現率 (%)", fontsize=fs * .85)
+            cb.ax.tick_params(labelsize=fs * .85)
+        else:
+            fig, axs = plt.subplots(1, len(bounds), figsize=(6.4 * len(bounds) + 1.2, 7), squeeze=False)
+            for i in range(len(bounds)):
+                n, k = (t.loc[clo:chi, clo:chi] for t in tabs[(s, i)])
+                label, y0, y1 = period_label(bounds, i, last_year)
+                head = f"{s} {label} ({hourly_note(start.get(s), y0, y1)})\n該当{int(n.values.sum())}時間, 視程<1km {int(k.values.sum())}時間"
+                sm = ts.heat(axs[0, i], n, k, head, norm, cmap, numbers=True)
+                axs[0, i].title.set_fontsize(10)
+            fig.tight_layout(rect=(0, .07, .94, 1))
+            fig.text(.01, .004,
+                     "マス内の数字: 上=視程<1kmだった時間 / 下=該当した時間。色=視程<1kmの出現率 (上÷下)。灰色=視程<1kmが0回、または該当した時間が40時間未満。空白=該当なし。"
+                     f"\n破線=気温と海面水温が等しい。目盛りはマスの境目 (各マスは例えば16.0℃以上17.0℃未満)。{s}は視程が毎時になった年={start.get(s) or '不明'} (観測の自動化 {fp.AUTOMATION.get(s, '不明')}、気象観測統計指針 表3.4－6。それ以前は目視で間引かれた時刻だけの観測)。",
+                     fontsize=8)
+            bb = axs[0, -1].get_position()
+            fig.colorbar(sm, cax=fig.add_axes([.955, bb.y0 + .1 * bb.height, .012, .8 * bb.height])).set_label("視程<1kmの出現率 (%)", fontsize=9)
         if a.save_dir:
             os.makedirs(a.save_dir, exist_ok=True)
-            path = os.path.join(a.save_dir, f"fog_ta_sst_period_{s}.png")
+            path = os.path.join(a.save_dir, f"fog_ta_sst_period_{s}{'_poster' if a.poster else ''}.png")
             fig.savefig(path, dpi=130)
             print("保存:", path)
             plt.close(fig)
