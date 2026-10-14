@@ -1,11 +1,11 @@
 """夏(6〜8月)の平均海面水温 と 夏の霧日数(気象庁の公式値)の散布図 (ポスター用)。
-海面水温は 1982年からなので、年代の区切りは既定で 1982 / 1997 / 2012 の3つ (15年ずつ)。官署ごとに最寄りの海域を使う (fog_plot.STATION_SST)。
+海面水温は 1982年からなので、年代の区切りは既定で 1982 / 2004 の2つ (全期間をほぼ半分に分ける)。官署ごとに最寄りの海域を使う (fog_plot.STATION_SST)。
 相関は因果を示さない。
 
 使い方:
   py fog_plot_sst_fog.py --kiri 東北地方気象官署月別値霧日数.csv                  # 画面に出す
   py fog_plot_sst_fog.py --kiri ... --save-dir out                                # PNGを保存
-  py fog_plot_sst_fog.py --kiri ... --periods 1982 1997 2012 --stations 八戸 宮古 大船渡 石巻 小名浜
+  py fog_plot_sst_fog.py --kiri ... --periods 1982 2004 --stations 八戸 宮古 大船渡 石巻 小名浜
 """
 import argparse
 import os
@@ -23,7 +23,7 @@ STATIONS = ["八戸", "宮古", "大船渡", "石巻", "小名浜"]
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--kiri", default=os.path.join(fp.HERE, "東北地方気象官署月別値霧日数.csv"), help="霧日数の月別値CSV")
-    p.add_argument("--periods", type=int, nargs="+", default=[1982, 1997, 2012], help="年代の区切りとなる開始年 (小さい順)。既定 1982 1997 2012 (15年ずつ)")
+    p.add_argument("--periods", type=int, nargs="+", default=[1982, 2004], help="年代の区切りとなる開始年 (小さい順)。既定 1982 2004 (前半22年・後半23年)")
     p.add_argument("--stations", nargs="*", default=STATIONS, help="官署名 (既定: 太平洋側の5官署)")
     p.add_argument("--size-cm", type=float, nargs=2, default=[40, 22], metavar=("幅", "高さ"), help="貼り付ける大きさ (cm)。既定 40 22")
     p.add_argument("--fontsize", type=float, default=24, help="目盛りの文字の大きさ (pt)。既定24")
