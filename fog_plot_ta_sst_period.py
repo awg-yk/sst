@@ -41,7 +41,7 @@ def crop(k, margin=1):
     return max(lo, idx.min()), min(hi, idx.max())
 
 
-def heat_share(ax, n, k, total_n, title, norm, cmap):
+def heat_share(ax, n, k, total_n, title, norm, cmap, numbers=False):
     """色=そのマスの視程<1km時間 ÷ その年代の全観測時間 (%)。全マスを足すと、その年代の視程<1kmの出現率になる。
     年代ごとに観測時間の数が違っても (年代の長さ・毎時でない時期の間引き)、同じ尺度で比べられる。灰色=該当なし (観測がないマス)。"""
     lo, hi = n.index.min(), n.index.max()
@@ -51,9 +51,20 @@ def heat_share(ax, n, k, total_n, title, norm, cmap):
     ax.imshow(np.where(nv > 0, 1.0, np.nan), origin="lower", extent=ext, aspect="equal", cmap=ListedColormap(["#e4e4e4"]), vmin=0, vmax=1)
     ax.imshow(np.where(share > 0, share, np.nan), origin="lower", extent=ext, aspect="equal", cmap=cmap, norm=norm)
     ax.plot([lo, hi + 1], [lo, hi + 1], "k--", lw=.8, alpha=.6)
+    if numbers:                                  # マス内の数字: 上=視程<1kmだった時間 / 下=該当した時間
+        for i in range(nv.shape[0]):
+            for j in range(nv.shape[1]):
+                if nv[i, j] > 0:
+                    dark = np.isfinite(share[i, j]) and share[i, j] > 0 and norm(share[i, j]) > 0.55
+                    ax.text(lo + j + .5, lo + i + .5, f"{int(k.values[i, j])}\n{int(nv[i, j])}", ha="center", va="center",
+                            fontsize=5.5, linespacing=1.0, color="w" if dark else ("k" if share[i, j] > 0 else "#888"))
+        ax.set_xticks(range(lo, hi + 2))
+        ax.set_yticks(range(lo, hi + 2))
+        ax.tick_params(labelsize=7)
+        ax.set(xlabel="気温 (℃)", ylabel="海面水温 (℃)")
     ax.set_xlim(lo, hi + 1)
     ax.set_ylim(lo, hi + 1)
-    ax.set(title=title)
+    ax.set_title(title)
     return ScalarMappable(norm=norm, cmap=cmap)
 
 
@@ -144,15 +155,22 @@ def main():
                 n, k = (t.loc[clo:chi, clo:chi] for t in tabs[(s, i)])
                 label, y0, y1 = period_label(bounds, i, last_year)
                 head = f"{s} {label} ({hourly_note(start.get(s), y0, y1)})\n該当{int(n.values.sum())}時間, 視程<1km {int(k.values.sum())}時間"
-                sm = ts.heat(axs[0, i], n, k, head, norm, cmap, numbers=True)
+                if a.value == "share":
+                    kt = tabs[(s, i)][1].values.sum()      # 題は、図に出していない端のマスも含めた、その年代の全体
+                    head = f"{s} {label} ({hourly_note(start.get(s), y0, y1)})\n全観測{int(tot_n[(s, i)])}時間, 視程<1km {int(kt)}時間 = {kt / tot_n[(s, i)] * 100:.1f}%"
+                    sm = heat_share(axs[0, i], n, k, tot_n[(s, i)], head, norm, cmap, numbers=True)
+                else:
+                    sm = ts.heat(axs[0, i], n, k, head, norm, cmap, numbers=True)
                 axs[0, i].title.set_fontsize(10)
             fig.tight_layout(rect=(0, .07, .94, 1))
+            colnote = ("色=視程<1km時間 ÷ その年代の全観測時間 (%) (全マスの合計=題の%)。灰色=観測はあったが視程<1kmは0時間。空白=観測なし。" if a.value == "share" else
+                       "色=視程<1kmの出現率 (上÷下)。灰色=視程<1kmが0回、または該当した時間が40時間未満。空白=該当なし。")
             fig.text(.01, .004,
-                     "マス内の数字: 上=視程<1kmだった時間 / 下=該当した時間。色=視程<1kmの出現率 (上÷下)。灰色=視程<1kmが0回、または該当した時間が40時間未満。空白=該当なし。"
+                     "マス内の数字: 上=視程<1kmだった時間 / 下=該当した時間。" + colnote +
                      f"\n破線=気温と海面水温が等しい。目盛りはマスの境目 (各マスは例えば16.0℃以上17.0℃未満)。{s}は視程が毎時になった年={start.get(s) or '不明'} (観測の自動化 {fp.AUTOMATION.get(s, '不明')}、気象観測統計指針 表3.4－6。それ以前は目視で間引かれた時刻だけの観測)。",
                      fontsize=8)
             bb = axs[0, -1].get_position()
-            fig.colorbar(sm, cax=fig.add_axes([.955, bb.y0 + .1 * bb.height, .012, .8 * bb.height])).set_label("視程<1kmの出現率 (%)", fontsize=9)
+            fig.colorbar(sm, cax=fig.add_axes([.955, bb.y0 + .1 * bb.height, .012, .8 * bb.height])).set_label("視程<1kmの出現率 (%)" if a.value == "rate" else "全観測時間に占める視程<1kmの割合 (%)", fontsize=9)
         if a.save_dir:
             os.makedirs(a.save_dir, exist_ok=True)
             path = os.path.join(a.save_dir, f"fog_ta_sst_period_{s}{'_poster' if a.poster else ''}.png")
