@@ -19,6 +19,8 @@ import os
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import ListedColormap, Normalize
 
 import fog_plot as fp
 import fog_plot_temp_sst as ts
@@ -39,6 +41,22 @@ def crop(k, margin=1):
     return max(lo, idx.min()), min(hi, idx.max())
 
 
+def heat_share(ax, n, k, total_n, title, norm, cmap):
+    """色=そのマスの視程<1km時間 ÷ その年代の全観測時間 (%)。全マスを足すと、その年代の視程<1kmの出現率になる。
+    年代ごとに観測時間の数が違っても (年代の長さ・毎時でない時期の間引き)、同じ尺度で比べられる。灰色=該当なし (観測がないマス)。"""
+    lo, hi = n.index.min(), n.index.max()
+    nv = n.values
+    share = np.where(nv > 0, k.values / total_n * 100, np.nan)
+    ext = (lo, hi + 1, lo, hi + 1)
+    ax.imshow(np.where(nv > 0, 1.0, np.nan), origin="lower", extent=ext, aspect="equal", cmap=ListedColormap(["#e4e4e4"]), vmin=0, vmax=1)
+    ax.imshow(np.where(share > 0, share, np.nan), origin="lower", extent=ext, aspect="equal", cmap=cmap, norm=norm)
+    ax.plot([lo, hi + 1], [lo, hi + 1], "k--", lw=.8, alpha=.6)
+    ax.set_xlim(lo, hi + 1)
+    ax.set_ylim(lo, hi + 1)
+    ax.set(title=title)
+    return ScalarMappable(norm=norm, cmap=cmap)
+
+
 def hourly_note(start, y0, y1):
     """視程が毎時になった年 start と、年代 y0〜y1 の関係を短い文字にする。"""
     if start is None or start > y1:
@@ -55,6 +73,8 @@ def main():
     p.add_argument("--poster", action="store_true", help="ポスター用: マス内の数字と下の注記をなくし、文字を大きくして、--size-cm の大きさで描く")
     p.add_argument("--size-cm", type=float, nargs=2, default=[40, 12.5], metavar=("幅", "高さ"), help="--poster のときの、貼り付ける大きさ (cm)。既定 40 12.5")
     p.add_argument("--fontsize", type=float, default=22, help="--poster のときの、目盛りの文字の大きさ (pt)。既定22")
+    p.add_argument("--value", choices=["rate", "share"], default="rate",
+                   help="色の意味。rate=出現率 (視程<1km時間 ÷ そのマスの該当時間, 既定) / share=全観測時間に占める割合 (視程<1km時間 ÷ その年代の全観測時間。全マスの合計=その年代の出現率で、年代どうしを比べられる)")
     p.add_argument("--save-dir", help="画面に出さずPNGをこのフォルダに保存する")
     a = p.parse_args()
 
@@ -75,6 +95,10 @@ def main():
     tabs = {(s, i): ts.ta_sst_table(d[(d["station"] == s) & (pid == i)], lo, hi) for s in allst for i in range(len(bounds))}
     norm = fp.fog_norm(list(tabs.values()))                                                  # 出現率の色の基準 (全官署・全年代で共通)
     cmap = plt.get_cmap("magma_r")
+    if a.value == "share":                                                                   # 全観測時間に占める割合の色の基準 (全官署・全年代で共通)
+        tot_n = {key: t[0].values.sum() for key, t in tabs.items()}
+        top = max(float((t[1].values / tot_n[key] * 100).max()) for key, t in tabs.items())
+        norm = Normalize(0, top)
     names = [s for s in (a.stations or allst) if s in allst]
 
     for s in names:
@@ -86,6 +110,19 @@ def main():
             for i in range(len(bounds)):
                 n, k = (t.loc[clo:chi, clo:chi] for t in tabs[(s, i)])
                 label, y0, y1 = period_label(bounds, i, last_year)
+                if a.value == "share":
+                    sm = heat_share(axs[0, i], n, k, tot_n[(s, i)], label, norm, cmap)
+                    ax = axs[0, i]
+                    total = tabs[(s, i)][1].values.sum() / tot_n[(s, i)] * 100
+                    print(f"{s} {label}: 全観測 {int(tot_n[(s, i)])}時間, 視程<1km {int(tabs[(s, i)][1].values.sum())}時間 = {total:.2f}%")
+                    ax.text(.5, 1.01, f"合計 {total:.1f}%", transform=ax.transAxes, ha="center", va="bottom", fontsize=fs * .8)
+                    ax.set_xlabel("気温 (℃)", fontsize=fs)
+                    ax.set_xticks([t for t in range(-(-clo // 5) * 5, chi + 2, 5) if clo < t < chi + 1])
+                    ax.set_yticks([t for t in range(-(-clo // 5) * 5, chi + 2, 5) if clo < t < chi + 1])
+                    ax.tick_params(labelsize=fs)
+                    ax.set_title(label.replace("〜", "～"), fontsize=fs * 1.1, pad=fs * 1.1)
+                    ax.set_ylabel("海面水温 (℃)" if i == 0 else "", fontsize=fs)
+                    continue
                 sm = ts.heat(axs[0, i], n, k, label, norm, cmap, numbers=False)
                 ax = axs[0, i]
                 ax.tick_params(labelsize=fs)
@@ -99,7 +136,7 @@ def main():
             fig.tight_layout(pad=.9, w_pad=.5, rect=(0, 0, .885, 1))
             bb = axs[0, -1].get_position()
             cb = fig.colorbar(sm, cax=fig.add_axes([.915, bb.y0 + .08 * bb.height, .014, .84 * bb.height]))
-            cb.set_label("視程<1kmの出現率 (%)", fontsize=fs * .8)
+            cb.set_label("視程1km未満の割合 (%)" if a.value == "rate" else "全時間に占める視程1km未満の割合 (%)", fontsize=fs * .8)
             cb.ax.tick_params(labelsize=fs * .8)
         else:
             fig, axs = plt.subplots(1, len(bounds), figsize=(6.4 * len(bounds) + 1.2, 7), squeeze=False)
