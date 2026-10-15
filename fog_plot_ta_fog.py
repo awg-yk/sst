@@ -48,7 +48,7 @@ def load_temps(path):
     return out
 
 
-def poster_figure(data, names, bounds, label, a):
+def poster_figure(data, names, bounds, label, a, subtitles=None):
     """ポスター用の図: 官署を2×3に並べ、年代ごとに色分けして回帰直線を引く。凡例は空いたパネルに1つだけ置く。
     貼り付けるサイズ (--size-cm) で描くので、文字の大きさ (pt) は、そのまま印刷の大きさになる。"""
     fs = a.fontsize
@@ -71,8 +71,12 @@ def poster_figure(data, names, bounds, label, a):
             ax.scatter(x[mk], y[mk], s=fs * 2.2, color=col, zorder=2, alpha=.9)
             xs = np.array([x[mk].min(), x[mk].max()])
             ax.plot(xs, slope * xs + icpt, color=col, lw=fs / 7, zorder=3)
-            handles[i] = (col, f"{b0}〜{end}年")
-        ax.set_title(s, pad=4)
+            handles[i] = (col, f"{b0}～{end}年")
+        if subtitles:       # 官署名の下に、小さく補足 (例: 海域名)
+            ax.set_title(s, pad=fs * 1.0)
+            ax.text(.5, 1.012, subtitles[s], transform=ax.transAxes, ha="center", va="bottom", fontsize=fs * .72)
+        else:
+            ax.set_title(s, pad=4)
         ax.grid(alpha=.3)
         ax.locator_params(axis="y", nbins=4)
     xmin = min(float(data[s][1].min()) for s in names)
@@ -86,7 +90,7 @@ def poster_figure(data, names, bounds, label, a):
     from matplotlib.lines import Line2D
     items = [Line2D([0], [0], marker="o", color=c, lw=fs / 7, markersize=fs / 2.2, label=t) for _, (c, t) in sorted(handles.items())]
     leg_ax = spare[0] if spare else axs[0, -1]
-    leg_ax.legend(handles=items, loc="center", fontsize=fs * .95, frameon=False, title="年代 (直線は年代ごとの回帰直線)", title_fontsize=fs * .8)
+    leg_ax.legend(handles=items, loc="center", fontsize=fs * .95, frameon=False, title="年代（直線は年代ごとの回帰直線）", title_fontsize=fs * .8)
     for r in range(nrow):
         for c in range(ncol):
             ax = axs[r, c]
