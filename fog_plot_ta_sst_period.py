@@ -126,7 +126,7 @@ def main():
                     ax = axs[0, i]
                     total = tabs[(s, i)][1].values.sum() / tot_n[(s, i)] * 100
                     print(f"{s} {label}: 全観測 {int(tot_n[(s, i)])}時間, 視程<1km {int(tabs[(s, i)][1].values.sum())}時間 = {total:.2f}%")
-                    ax.text(.5, 1.01, f"合計 {total:.1f}%", transform=ax.transAxes, ha="center", va="bottom", fontsize=fs * .8)
+                    ax.text(.5, 1.01, f"視程1km未満の割合の合計 {total:.1f}%", transform=ax.transAxes, ha="center", va="bottom", fontsize=fs * .62)
                     ax.set_xlabel("気温 (℃)", fontsize=fs)
                     ax.set_xticks([t for t in range(-(-clo // 5) * 5, chi + 2, 5) if clo < t < chi + 1])
                     ax.set_yticks([t for t in range(-(-clo // 5) * 5, chi + 2, 5) if clo < t < chi + 1])
@@ -144,10 +144,10 @@ def main():
                 ax.set_title(label, fontsize=fs * 1.1, pad=4)
                 ax.set_xlabel("気温 (℃)", fontsize=fs)
                 ax.set_ylabel("海面水温 (℃)" if i == 0 else "", fontsize=fs)
-            fig.tight_layout(pad=.9, w_pad=.5, rect=(0, 0, .86 if a.value == 'share' else .885, 1))
+            fig.tight_layout(pad=.9, w_pad=.5, rect=(0, 0, .885, 1))
             bb = axs[0, -1].get_position()
-            cb = fig.colorbar(sm, cax=fig.add_axes([.89 if a.value == 'share' else .915, bb.y0 + .08 * bb.height, .014, .84 * bb.height]))
-            cb.set_label("視程1km未満の割合 (%)" if a.value == "rate" else "視程1km未満の割合 (%)\n（各年代の全時間に対する割合）", fontsize=fs * .72)
+            cb = fig.colorbar(sm, cax=fig.add_axes([.915, bb.y0 + .08 * bb.height, .014, .84 * bb.height]))
+            cb.set_label("視程1km未満の割合 (%)" if a.value == "rate" else "全時間に対する視程1km未満の割合 (%)", fontsize=fs * .8)
             cb.ax.tick_params(labelsize=fs * .8)
         else:
             fig, axs = plt.subplots(1, len(bounds), figsize=(6.4 * len(bounds) + 1.2, 7), squeeze=False)
