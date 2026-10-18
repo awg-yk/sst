@@ -58,6 +58,7 @@ def poster_figure(data, names, bounds, label, a, subtitles=None, show_slope=Fals
     fig, axs = plt.subplots(nrow, ncol, figsize=(a.size_cm[0] / 2.54, a.size_cm[1] / 2.54), sharex=True, sharey=True, squeeze=False)   # 横軸も全官署でそろえる
     last_year = max(int(data[s][0].max()) for s in names)
     handles = {}
+    slope_info = {}
     for ax, s in zip(axs.ravel(), names):
         yr, x, y, h = data[s]
         slope_lines = []
@@ -79,9 +80,8 @@ def poster_figure(data, names, bounds, label, a, subtitles=None, show_slope=Fals
             ax.text(.5, 1.012, subtitles[s], transform=ax.transAxes, ha="center", va="bottom", fontsize=fs * 1.2)   # 官署名と同じ大きさ
         else:
             ax.set_title(s, pad=4)
-        if show_slope:      # 回帰直線の傾き (霧日数/℃) を、年代の色で左下に書く (点が無い隅)
-            for j, (col, sl) in enumerate(slope_lines):
-                ax.text(.04, .05 + (len(slope_lines) - 1 - j) * .13, f"{sl:+.1f}日/℃".replace("-", "−"), transform=ax.transAxes, ha="left", va="bottom", color=col, fontsize=fs * .95, fontweight="bold", bbox=dict(facecolor="white", alpha=.8, edgecolor="none", pad=1.5))
+        if show_slope:
+            slope_info[s] = (ax, slope_lines, [(x[pid == i], y[pid == i], i) for i in range(len(bounds))])
         ax.grid(alpha=.3)
         ax.locator_params(axis="y", nbins=4)
     xmin = min(float(data[s][1].min()) for s in names)
@@ -89,6 +89,29 @@ def poster_figure(data, names, bounds, label, a, subtitles=None, show_slope=Fals
     lo, hi = int(np.floor(xmin / 2)) * 2, int(np.ceil(xmax / 2)) * 2    # 2℃刻みの目盛りに合わせた共通の範囲
     axs[0, 0].set_xlim(lo - .3, hi + .3)
     axs[0, 0].set_xticks(range(lo, hi + 1, 2))
+    for s, (ax, slope_lines, pts) in slope_info.items():     # 回帰直線の傾きは、点や直線と重ならない隅に書く
+        xl, yl = ax.get_xlim(), ax.get_ylim()
+        P = []
+        for xs_, ys_, _ in pts:
+            P += list(zip((xs_ - xl[0]) / (xl[1] - xl[0]), (ys_ - yl[0]) / (yl[1] - yl[0])))
+        for xs_, ys_, i in pts:     # 回帰直線の上も調べる
+            if len(xs_) >= 3:
+                sl, ic = np.polyfit(xs_, ys_, 1)
+                for xx in np.linspace(xs_.min(), xs_.max(), 30):
+                    P.append(((xx - xl[0]) / (xl[1] - xl[0]), (sl * xx + ic - yl[0]) / (yl[1] - yl[0])))
+        bw, bh = .46, .12 * len(slope_lines) + .06
+        cands = [("l", "b"), ("r", "t"), ("l", "t"), ("r", "b")]
+        def count(c):
+            x0 = .02 if c[0] == "l" else .98 - bw
+            y0 = .03 if c[1] == "b" else .97 - bh
+            return sum(1 for px, py in P if x0 - .03 <= px <= x0 + bw + .03 and y0 - .03 <= py <= y0 + bh + .03)
+        best = min(cands, key=lambda c: (count(c), cands.index(c)))
+        for j, (col, sl) in enumerate(slope_lines):
+            row = len(slope_lines) - 1 - j if best[1] == "b" else j
+            yy = .04 + row * .12 if best[1] == "b" else .96 - j * .12
+            ax.text(.03 if best[0] == "l" else .97, yy, f"{sl:+.1f}日/℃".replace("-", "−"), transform=ax.transAxes,
+                    ha="left" if best[0] == "l" else "right", va="bottom" if best[1] == "b" else "top", color=col, fontsize=fs * .95,
+                    fontweight="bold", bbox=dict(facecolor="white", alpha=.8, edgecolor="none", pad=1.5), zorder=5)
     spare = list(axs.ravel()[len(names):])
     for ax in spare:
         ax.axis("off")
