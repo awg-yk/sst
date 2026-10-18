@@ -135,7 +135,9 @@ def main():
                 ax.tick_params(labelsize=fs)
                 ax.set_title(label.replace("〜", "～") if r == 0 else "", fontsize=fs * 1.1, pad=fs * 2.4)
                 ax.set_xlabel("気温 (℃)" if r == len(names) - 1 else "", fontsize=fs)
-                ax.set_ylabel(f"{s}\n海面水温 (℃)" if i == 0 else "", fontsize=fs)
+                ax.set_ylabel("海面水温 (℃)" if i == 0 else "", fontsize=fs)
+                if i == 0:      # 官署名は、各段の最初のパネルの左上 (点のない隅) に大きく書く
+                    ax.text(.04, .95, s, transform=ax.transAxes, ha="left", va="top", fontsize=fs * 1.5, fontweight="bold", bbox=dict(facecolor="white", alpha=.85, edgecolor="none", pad=3))
         fig.tight_layout(pad=.9, w_pad=.5, h_pad=.6, rect=(0, 0, .865, 1))
         top, bot = axs[0, -1].get_position(), axs[-1, -1].get_position()
         cb = fig.colorbar(sm, cax=fig.add_axes([.895, bot.y0 + .05 * (top.y1 - bot.y0), .013, .9 * (top.y1 - bot.y0)]))

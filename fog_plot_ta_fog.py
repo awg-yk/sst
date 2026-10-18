@@ -48,7 +48,7 @@ def load_temps(path):
     return out
 
 
-def poster_figure(data, names, bounds, label, a, subtitles=None, show_slope=False):
+def poster_figure(data, names, bounds, label, a, subtitles=None, show_slope=False, colors=None):
     """ポスター用の図: 官署を2×3に並べ、年代ごとに色分けして回帰直線を引く。凡例は空いたパネルに1つだけ置く。
     貼り付けるサイズ (--size-cm) で描くので、文字の大きさ (pt) は、そのまま印刷の大きさになる。"""
     fs = a.fontsize
@@ -67,7 +67,7 @@ def poster_figure(data, names, bounds, label, a, subtitles=None, show_slope=Fals
             if mk.sum() < 3:
                 continue
             end = bounds[i + 1] - 1 if i + 1 < len(bounds) else last_year
-            col = PERIOD_COLORS[i % len(PERIOD_COLORS)]
+            col = (colors or PERIOD_COLORS)[i % len(colors or PERIOD_COLORS)]
             slope, icpt = np.polyfit(x[mk], y[mk], 1)
             ax.scatter(x[mk], y[mk], s=fs * 2.2, color=col, zorder=2, alpha=.9)
             xs = np.array([x[mk].min(), x[mk].max()])
