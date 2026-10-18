@@ -89,6 +89,10 @@ def poster_figure(data, names, bounds, label, a, subtitles=None, show_slope=Fals
     lo, hi = int(np.floor(xmin / 2)) * 2, int(np.ceil(xmax / 2)) * 2    # 2℃刻みの目盛りに合わせた共通の範囲
     axs[0, 0].set_xlim(lo - .3, hi + .3)
     axs[0, 0].set_xticks(range(lo, hi + 1, 2))
+    if slope_info:      # 傾きの文字を全パネルで同じ位置 (右上) に置くため、縦軸の上に文字の分の余白を取る
+        ymax = max(float(data[s][2].max()) for s in names)
+        bot = min(ax.get_ylim()[0] for ax, _, _ in slope_info.values())
+        next(iter(slope_info.values()))[0].set_ylim(bot, ymax * 1.45 + 6)
     for s, (ax, slope_lines, pts) in slope_info.items():     # 回帰直線の傾きは、点や直線と重ならない隅に書く
         xl, yl = ax.get_xlim(), ax.get_ylim()
         P = []
@@ -105,7 +109,7 @@ def poster_figure(data, names, bounds, label, a, subtitles=None, show_slope=Fals
             x0 = .02 if c[0] == "l" else .98 - bw
             y0 = .03 if c[1] == "b" else .97 - bh
             return sum(1 for px, py in P if x0 - .03 <= px <= x0 + bw + .03 and y0 - .03 <= py <= y0 + bh + .03)
-        best = min(cands, key=lambda c: (count(c), cands.index(c)))
+        best = ("r", "t")     # 全パネルで右上にそろえる
         for j, (col, sl) in enumerate(slope_lines):
             row = len(slope_lines) - 1 - j if best[1] == "b" else j
             yy = .04 + row * .12 if best[1] == "b" else .96 - j * .12
