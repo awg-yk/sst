@@ -86,6 +86,7 @@ def main():
     p.add_argument("--fontsize", type=float, default=22, help="--poster のときの、目盛りの文字の大きさ (pt)。既定22")
     p.add_argument("--value", choices=["rate", "share"], default="rate",
                    help="色の意味。rate=出現率 (視程<1km時間 ÷ そのマスの該当時間, 既定) / share=全観測時間に占める割合 (視程<1km時間 ÷ その年代の全観測時間。全マスの合計=その年代の出現率で、年代どうしを比べられる)")
+    p.add_argument("--combine", action="store_true", help="--poster --value share のとき、指定した官署を1枚の図に縦に並べる (カラーバーは1つ)。年代の区切りは全官署で同じにする")
     p.add_argument("--save-dir", help="画面に出さずPNGをこのフォルダに保存する")
     a = p.parse_args()
 
@@ -111,6 +112,44 @@ def main():
         top = max(float((t[1].values / tot_n[key] * 100).max()) for key, t in tabs.items())
         norm = Normalize(0, top)
     names = [s for s in (a.stations or allst) if s in allst]
+
+    if a.combine:
+        if not (a.poster and a.value == "share"):
+            raise SystemExit("--combine は --poster --value share と一緒に使います")
+        fs = a.fontsize
+        fig, axs = plt.subplots(len(names), len(bounds), figsize=(a.size_cm[0] / 2.54, a.size_cm[1] / 2.54), squeeze=False, sharey="row")
+        for r, s in enumerate(names):
+            total = sum(tabs[(s, i)][1] for i in range(len(bounds)))
+            clo, chi = crop(total)
+            for i in range(len(bounds)):
+                ax = axs[r, i]
+                n, k = (t.loc[clo:chi, clo:chi] for t in tabs[(s, i)])
+                label, y0, y1 = period_label(bounds, i, last_year)
+                sm = heat_share(ax, n, k, tot_n[(s, i)], label, norm, cmap)
+                tot = tabs[(s, i)][1].values.sum() / tot_n[(s, i)] * 100
+                print(f"{s} {label}: 全観測 {int(tot_n[(s, i)])}時間, 視程<1km {int(tabs[(s, i)][1].values.sum())}時間 = {tot:.2f}%")
+                ax.text(.5, 1.01, f"視程1km未満の\n割合の合計 {tot:.1f}%", transform=ax.transAxes, ha="center", va="bottom", fontsize=fs * .72, linespacing=1.1)
+                ticks = [t for t in range(-(-clo // 5) * 5, chi + 2, 5) if clo < t < chi + 1]
+                ax.set_xticks(ticks)
+                ax.set_yticks(ticks)
+                ax.tick_params(labelsize=fs)
+                ax.set_title(label.replace("〜", "～") if r == 0 else "", fontsize=fs * 1.1, pad=fs * 2.4)
+                ax.set_xlabel("気温 (℃)" if r == len(names) - 1 else "", fontsize=fs)
+                ax.set_ylabel(f"{s}\n海面水温 (℃)" if i == 0 else "", fontsize=fs)
+        fig.tight_layout(pad=.9, w_pad=.5, h_pad=.6, rect=(0, 0, .865, 1))
+        top, bot = axs[0, -1].get_position(), axs[-1, -1].get_position()
+        cb = fig.colorbar(sm, cax=fig.add_axes([.895, bot.y0 + .05 * (top.y1 - bot.y0), .013, .9 * (top.y1 - bot.y0)]))
+        cb.set_label("全時間に対する視程1km未満の割合 (%)", fontsize=fs * .75, labelpad=fs * .5)
+        cb.ax.tick_params(labelsize=fs * .75)
+        if a.save_dir:
+            os.makedirs(a.save_dir, exist_ok=True)
+            path = os.path.join(a.save_dir, "fog_ta_sst_period_" + "_".join(names) + "_poster.png")
+            fig.savefig(path, dpi=130)
+            print("保存:", path)
+            plt.close(fig)
+        else:
+            plt.show()
+        return
 
     for s in names:
         total = sum(tabs[(s, i)][1] for i in range(len(bounds)))

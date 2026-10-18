@@ -48,7 +48,7 @@ def load_temps(path):
     return out
 
 
-def poster_figure(data, names, bounds, label, a, subtitles=None):
+def poster_figure(data, names, bounds, label, a, subtitles=None, show_slope=False):
     """ポスター用の図: 官署を2×3に並べ、年代ごとに色分けして回帰直線を引く。凡例は空いたパネルに1つだけ置く。
     貼り付けるサイズ (--size-cm) で描くので、文字の大きさ (pt) は、そのまま印刷の大きさになる。"""
     fs = a.fontsize
@@ -60,6 +60,7 @@ def poster_figure(data, names, bounds, label, a, subtitles=None):
     handles = {}
     for ax, s in zip(axs.ravel(), names):
         yr, x, y, h = data[s]
+        slope_lines = []
         pid = np.searchsorted(bounds, yr, side="right") - 1
         for i, b0 in enumerate(bounds):
             mk = pid == i
@@ -72,11 +73,15 @@ def poster_figure(data, names, bounds, label, a, subtitles=None):
             xs = np.array([x[mk].min(), x[mk].max()])
             ax.plot(xs, slope * xs + icpt, color=col, lw=fs / 7, zorder=3)
             handles[i] = (col, f"{b0}～{end}年")
+            slope_lines.append((col, slope))
         if subtitles:       # 官署名の下に、小さく補足 (例: 海域名)
-            ax.set_title(s, pad=fs * 1.0)
-            ax.text(.5, 1.012, subtitles[s], transform=ax.transAxes, ha="center", va="bottom", fontsize=fs * .72)
+            ax.set_title(s, pad=fs * 1.5)
+            ax.text(.5, 1.012, subtitles[s], transform=ax.transAxes, ha="center", va="bottom", fontsize=fs * 1.2)   # 官署名と同じ大きさ
         else:
             ax.set_title(s, pad=4)
+        if show_slope:      # 回帰直線の傾き (霧日数/℃) を、年代の色で左下に書く (点が無い隅)
+            for j, (col, sl) in enumerate(slope_lines):
+                ax.text(.04, .05 + (len(slope_lines) - 1 - j) * .13, f"{sl:+.1f}日/℃".replace("-", "−"), transform=ax.transAxes, ha="left", va="bottom", color=col, fontsize=fs * .95, fontweight="bold", bbox=dict(facecolor="white", alpha=.8, edgecolor="none", pad=1.5))
         ax.grid(alpha=.3)
         ax.locator_params(axis="y", nbins=4)
     xmin = min(float(data[s][1].min()) for s in names)
