@@ -128,12 +128,13 @@ def main():
                 sm = heat_share(ax, n, k, tot_n[(s, i)], label, norm, cmap)
                 tot = tabs[(s, i)][1].values.sum() / tot_n[(s, i)] * 100
                 print(f"{s} {label}: 全観測 {int(tot_n[(s, i)])}時間, 視程<1km {int(tabs[(s, i)][1].values.sum())}時間 = {tot:.2f}%")
-                ax.text(.5, 1.01, f"視程1km未満の\n割合の合計 {tot:.1f}%", transform=ax.transAxes, ha="center", va="bottom", fontsize=fs * .72, linespacing=1.1)
+                ax.text(.5, 1.01, "視程1km未満の割合", transform=ax.transAxes, ha="center", va="bottom", fontsize=fs * .78)      # 合計の数字を大きく見せる
+                ax.text(.5, 1.115, f"合計 {tot:.1f}%", transform=ax.transAxes, ha="center", va="bottom", fontsize=fs * 1.2)
                 ticks = [t for t in range(-(-clo // 5) * 5, chi + 2, 5) if clo < t < chi + 1]
                 ax.set_xticks(ticks)
                 ax.set_yticks(ticks)
                 ax.tick_params(labelsize=fs)
-                ax.set_title(label.replace("〜", "～") if r == 0 else "", fontsize=fs * 1.1, pad=fs * 2.4)
+                ax.set_title(label.replace("〜", "～") if r == 0 else "", fontsize=fs * 1.1, pad=fs * 3.0)
                 ax.set_xlabel("気温 (℃)" if r == len(names) - 1 else "", fontsize=fs)
                 ax.set_ylabel("海面水温 (℃)" if i == 0 else "", fontsize=fs)
                 if i == 0:      # 官署名は、各段の最初のパネルの左上 (点のない隅) に大きく書く
