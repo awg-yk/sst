@@ -3,6 +3,12 @@
 色の濃い部分が年代とともに減るか、右上(気温・海面水温が高いほう)へ移るかを見る。
 fog_plot.py と fog_plot_temp_sst.py と同じフォルダに置いて実行します。
 
+■ コピペ用 (ポスターの図3: 八戸・宮古を1枚にまとめた版。out フォルダにPNGを保存)
+py fog_plot_ta_sst_period.py --stations 八戸 宮古 --periods 1989 2000 2008 2020 --poster --value share --combine --size-cm 37 27 --fontsize 26 --save-dir out
+
+■ コピペ用 (予備資料の図3: マスの中に数字(時間数)が入る版。官署ごとに1枚)
+py fog_plot_ta_sst_period.py --stations 八戸 宮古 --periods 1989 2000 2008 2020 --value share --save-dir out
+
     python fog_plot_ta_sst_period.py                         # 官署ごとに1枚 (年代を横に並べる) を順に画面に表示
     python fog_plot_ta_sst_period.py --stations 宮古 八戸     # 官署を指定
     python fog_plot_ta_sst_period.py --periods 1989 2000 2010 2020   # 年代の区切り (この年から次の区切りの前年まで。既定は 1989 2000 2010 2020)
