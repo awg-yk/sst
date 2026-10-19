@@ -75,9 +75,8 @@ def poster_figure(data, names, bounds, label, a, subtitles=None, show_slope=Fals
             ax.plot(xs, slope * xs + icpt, color=col, lw=fs / 7, zorder=3)
             handles[i] = (col, f"{b0}～{end}年")
             slope_lines.append((col, slope))
-        if subtitles:       # 官署名の下に、小さく補足 (例: 海域名)
-            ax.set_title(s, pad=fs * 1.5)
-            ax.text(.5, 1.012, subtitles[s], transform=ax.transAxes, ha="center", va="bottom", fontsize=fs * 1.2)   # 官署名と同じ大きさ
+        if subtitles:       # 官署名と海域名を、同じ大きさで1行に並べる (縦を節約する)
+            ax.set_title(s + subtitles[s], pad=6, fontsize=fs * 1.15)
         else:
             ax.set_title(s, pad=4)
         if show_slope:
