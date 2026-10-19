@@ -44,7 +44,7 @@ def main():
             r = np.corrcoef(data[s][1], data[s][2])[0, 1]
             print(f"{s} ({area}): {len(yrs)}年, 相関係数 r={r:+.2f}")
     names = [s for s in a.stations if s in data]
-    fig = poster_figure(data, names, sorted(a.periods), "夏季の平均海面水温", a, subtitles={n: f"（{fp.STATION_SST[n]}）" for n in names}, show_slope=True, colors=["#E41A1C", "#0072B2"])
+    fig = poster_figure(data, names, sorted(a.periods), "夏季の平均海面水温", a, subtitles={n: f"（{fp.STATION_SST[n]}）" for n in names}, show_slope=True, colors=["#0072B2", "#C2185B"])
     if a.save_dir:
         os.makedirs(a.save_dir, exist_ok=True)
         path = os.path.join(a.save_dir, "fog_sst_fog_poster.png")
