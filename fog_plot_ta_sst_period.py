@@ -10,7 +10,7 @@ py fog_plot_ta_sst_period.py --stations 八戸 宮古 --periods 1989 2000 2008 2
 py fog_plot_ta_sst_period.py --stations 八戸 宮古 --periods 1989 2000 2008 2020 --poster --value share --combine --row --size-cm 64 15 --fontsize 27 --save-dir out
 
 ■ コピペ用 (八戸・宮古を別々の画像にする版。1枚が 32×15cm。2枚を横に並べて64cm)
-py fog_plot_ta_sst_period.py --stations 八戸 宮古 --periods 1989 2000 2008 2020 --poster --value share --combine --row --split --size-cm 32 15 --fontsize 21 --save-dir out
+py fog_plot_ta_sst_period.py --stations 八戸 宮古 --periods 1989 2000 2008 2020 --poster --value share --combine --row --split --size-cm 32 15 --fontsize 24 --save-dir out
 
 ■ コピペ用 (予備資料の図3: マスの中に数字(時間数)が入る版。官署ごとに1枚)
 py fog_plot_ta_sst_period.py --stations 八戸 宮古 --periods 1989 2000 2008 2020 --value share --save-dir out
@@ -153,13 +153,13 @@ def main():
                     ax.set_title(label.replace("〜", "～").replace("年", ""), fontsize=fs * .85, pad=fs * 2.0)
                     ax.set_xlabel("気温 (℃)", fontsize=fs * .85)
                     ax.set_ylabel("海面水温 (℃)" if i == 0 else "", fontsize=fs * .85)
-            left, right = (.09, .86) if a.split else (.05, .915)
-            fig.subplots_adjust(left=left, right=right, bottom=.21, top=.70 if not a.split else .66, wspace=.3)
+            left, right = (.075, .895) if a.split else (.05, .915)
+            fig.subplots_adjust(left=left, right=right, bottom=.2, top=.70 if not a.split else .68, wspace=.3 if not a.split else .14)
             for r, s in enumerate(grp):          # 官署名は、4枚のブロックの上に大きく書く
                 x0, x1 = axs[0, r * nb].get_position().x0, axs[0, r * nb + nb - 1].get_position().x1
-                fig.text((x0 + x1) / 2, (.90 if a.split else .98), s, ha="center", va="top", fontsize=fs * 1.4)
+                fig.text((x0 + x1) / 2, (.93 if a.split else .98), s, ha="center", va="top", fontsize=fs * 1.4)
             bb = axs[0, -1].get_position()
-            cb = fig.colorbar(sm, cax=fig.add_axes([right + .02, bb.y0, .012 if a.split else .01, bb.height]))
+            cb = fig.colorbar(sm, cax=fig.add_axes([right + .015, bb.y0, .012 if a.split else .01, bb.height]))
             cb.set_label("全時間に対する視程1km未満の割合 (%)", fontsize=fs * .6, labelpad=fs * .3)
             cb.ax.tick_params(labelsize=fs * .6)
             if a.save_dir:
