@@ -9,6 +9,9 @@ py fog_plot_ta_sst_period.py --stations 八戸 宮古 --periods 1989 2000 2008 2
 ■ コピペ用 (横長の枠 64×15cm 用: 八戸4枚・宮古4枚を、横1段に並べる版)
 py fog_plot_ta_sst_period.py --stations 八戸 宮古 --periods 1989 2000 2008 2020 --poster --value share --combine --row --size-cm 64 15 --fontsize 27 --save-dir out
 
+■ コピペ用 (八戸・宮古を別々の画像にする版。1枚が 32×15cm。2枚を横に並べて64cm)
+py fog_plot_ta_sst_period.py --stations 八戸 宮古 --periods 1989 2000 2008 2020 --poster --value share --combine --row --split --size-cm 32 15 --fontsize 21 --save-dir out
+
 ■ コピペ用 (予備資料の図3: マスの中に数字(時間数)が入る版。官署ごとに1枚)
 py fog_plot_ta_sst_period.py --stations 八戸 宮古 --periods 1989 2000 2008 2020 --value share --save-dir out
 
@@ -97,6 +100,7 @@ def main():
                    help="色の意味。rate=出現率 (視程<1km時間 ÷ そのマスの該当時間, 既定) / share=全観測時間に占める割合 (視程<1km時間 ÷ その年代の全観測時間。全マスの合計=その年代の出現率で、年代どうしを比べられる)")
     p.add_argument("--combine", action="store_true", help="--poster --value share のとき、指定した官署を1枚の図に縦に並べる (カラーバーは1つ)。年代の区切りは全官署で同じにする")
     p.add_argument("--row", action="store_true", help="--combine のとき、官署を縦ではなく横に並べる (1段。横長の枠 (例 64×15cm) に入れるとき)")
+    p.add_argument("--split", action="store_true", help="--combine --row のとき、官署ごとに別々の画像にする (例 --size-cm 32 15 で2枚を横に並べる)")
     p.add_argument("--save-dir", help="画面に出さずPNGをこのフォルダに保存する")
     a = p.parse_args()
 
@@ -128,41 +132,44 @@ def main():
             raise SystemExit("--combine は --poster --value share と一緒に使います")
         fs = a.fontsize
         nb = len(bounds)
-        fig, axs = plt.subplots(1, nb * len(names), figsize=(a.size_cm[0] / 2.54, a.size_cm[1] / 2.54), squeeze=False)
-        for r, s in enumerate(names):
-            total = sum(tabs[(s, i)][1] for i in range(nb))
-            clo, chi = crop(total)
-            for i in range(nb):
-                ax = axs[0, r * nb + i]
-                n, k = (t.loc[clo:chi, clo:chi] for t in tabs[(s, i)])
-                label, y0, y1 = period_label(bounds, i, last_year)
-                sm = heat_share(ax, n, k, tot_n[(s, i)], label, norm, cmap)
-                tot = tabs[(s, i)][1].values.sum() / tot_n[(s, i)] * 100
-                ax.text(.5, 1.01, "視程1km未満の割合", transform=ax.transAxes, ha="center", va="bottom", fontsize=fs * .6)
-                ax.text(.5, 1.12, f"合計 {tot:.1f}%", transform=ax.transAxes, ha="center", va="bottom", fontsize=fs * .95)
-                ticks = [t for t in range(-(-clo // 5) * 5, chi + 2, 5) if clo < t < chi + 1]
-                ax.set_xticks(ticks)
-                ax.set_yticks(ticks)
-                ax.tick_params(labelsize=fs * .8, labelleft=(i == 0))
-                ax.set_title(label.replace("〜", "～").replace("年", ""), fontsize=fs * .85, pad=fs * 2.0)
-                ax.set_xlabel("気温 (℃)", fontsize=fs * .85)
-                ax.set_ylabel("海面水温 (℃)" if i == 0 else "", fontsize=fs * .85)
-        fig.subplots_adjust(left=.05, right=.915, bottom=.2, top=.68, wspace=.3)
-        for r, s in enumerate(names):          # 官署名は、4枚のブロックの上に大きく書く
-            x0, x1 = axs[0, r * nb].get_position().x0, axs[0, r * nb + nb - 1].get_position().x1
-            fig.text((x0 + x1) / 2, .98, s, ha="center", va="top", fontsize=fs * 1.4)
-        bb = axs[0, -1].get_position()
-        cb = fig.colorbar(sm, cax=fig.add_axes([.935, bb.y0, .01, bb.height]))
-        cb.set_label("全時間に対する視程1km未満の割合 (%)", fontsize=fs * .6, labelpad=fs * .3)
-        cb.ax.tick_params(labelsize=fs * .6)
-        if a.save_dir:
-            os.makedirs(a.save_dir, exist_ok=True)
-            path = os.path.join(a.save_dir, "fog_ta_sst_period_" + "_".join(names) + "_poster_row.png")
-            fig.savefig(path, dpi=130)
-            print("保存:", path)
-            plt.close(fig)
-        else:
-            plt.show()
+        groups = [[s] for s in names] if a.split else [names]      # --split: 官署ごとに別々の画像にする
+        for grp in groups:
+            fig, axs = plt.subplots(1, nb * len(grp), figsize=(a.size_cm[0] / 2.54, a.size_cm[1] / 2.54), squeeze=False)
+            for r, s in enumerate(grp):
+                total = sum(tabs[(s, i)][1] for i in range(nb))
+                clo, chi = crop(total)
+                for i in range(nb):
+                    ax = axs[0, r * nb + i]
+                    n, k = (t.loc[clo:chi, clo:chi] for t in tabs[(s, i)])
+                    label, y0, y1 = period_label(bounds, i, last_year)
+                    sm = heat_share(ax, n, k, tot_n[(s, i)], label, norm, cmap)
+                    tot = tabs[(s, i)][1].values.sum() / tot_n[(s, i)] * 100
+                    ax.text(.5, 1.01, "視程1km未満の割合", transform=ax.transAxes, ha="center", va="bottom", fontsize=fs * .6)
+                    ax.text(.5, 1.12, f"合計 {tot:.1f}%", transform=ax.transAxes, ha="center", va="bottom", fontsize=fs * .95)
+                    ticks = [t for t in range(-(-clo // 5) * 5, chi + 2, 5) if clo < t < chi + 1]
+                    ax.set_xticks(ticks)
+                    ax.set_yticks(ticks)
+                    ax.tick_params(labelsize=fs * .8, labelleft=(i == 0))
+                    ax.set_title(label.replace("〜", "～").replace("年", ""), fontsize=fs * .85, pad=fs * 2.0)
+                    ax.set_xlabel("気温 (℃)", fontsize=fs * .85)
+                    ax.set_ylabel("海面水温 (℃)" if i == 0 else "", fontsize=fs * .85)
+            left, right = (.09, .86) if a.split else (.05, .915)
+            fig.subplots_adjust(left=left, right=right, bottom=.21, top=.70 if not a.split else .66, wspace=.3)
+            for r, s in enumerate(grp):          # 官署名は、4枚のブロックの上に大きく書く
+                x0, x1 = axs[0, r * nb].get_position().x0, axs[0, r * nb + nb - 1].get_position().x1
+                fig.text((x0 + x1) / 2, (.90 if a.split else .98), s, ha="center", va="top", fontsize=fs * 1.4)
+            bb = axs[0, -1].get_position()
+            cb = fig.colorbar(sm, cax=fig.add_axes([right + .02, bb.y0, .012 if a.split else .01, bb.height]))
+            cb.set_label("全時間に対する視程1km未満の割合 (%)", fontsize=fs * .6, labelpad=fs * .3)
+            cb.ax.tick_params(labelsize=fs * .6)
+            if a.save_dir:
+                os.makedirs(a.save_dir, exist_ok=True)
+                path = os.path.join(a.save_dir, "fog_ta_sst_period_" + "_".join(grp) + "_poster_row.png")
+                fig.savefig(path, dpi=130)
+                print("保存:", path)
+                plt.close(fig)
+            else:
+                plt.show()
         return
 
     if a.combine:
