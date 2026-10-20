@@ -5,6 +5,7 @@ fog_plot.py と同じフォルダに置いて実行します (露点温度は「
     python fog_plot_year.py --what temps        # 気温・露点温度・海面水温の年平均だけ
     python fog_plot_year.py --what dt gap       # 「気温−海面水温」と「露点温度−海面水温」の年平均
     python fog_plot_year.py --what ta_long      # 夏の平均気温だけ、1930年代から (気象庁 月別値の3か月平均 「東北地方3か月平均.csv」を使う)
+    python fog_plot_year.py --what temps_long   # 気温 (1930年代から) に、露点温度・海面水温 (1980年代から) を重ねた図
     python fog_plot_year.py --stations 八戸 宮古 大船渡 石巻 小名浜   # 官署を指定 (省略でデータのある官署すべて)
     python fog_plot_year.py --from-year 1990    # この年以降だけ使う
     python fog_plot_year.py --save-dir out      # 画面に出さずPNGを保存
@@ -13,6 +14,7 @@ fog_plot.py と同じフォルダに置いて実行します (露点温度は「
     temps  気温 (赤)・海面水温 (青)・露点温度 (緑) の年平均。3つがそろった観測時刻だけで平均する。
     dt     「気温 − 海面水温」の年平均。気温の観測時刻すべてを使う (露点温度は使わない。1982年から)。
     ta_long 夏 (6〜8月) の平均気温だけの折れ線 (1930年代から)。気象庁 月別値の3か月平均 (東北地方3か月平均.csv) を使う。--from-year は使わない。
+    temps_long 気温 (月別値の3か月平均、1930年代から・赤) に、海面水温 (夏の平均、1982年から・青) と露点温度 (時別値、1984年から・緑) を重ねた図。
     gap    「露点温度 − 海面水温」の年平均 (空気が海面で冷やされる余地)。temps と同じ観測時刻。
 
 各官署のグラフ: 点と線=年平均 (観測時刻ごとに、その日の海面水温を対応させて平均)。細い直線は年との直線の当てはめで、傾きを ℃/10年 で書く。
@@ -27,7 +29,7 @@ import pandas as pd
 
 import fog_plot as fp
 
-WHAT = ("temps", "dt", "gap", "ta_long")
+WHAT = ("temps", "dt", "gap", "ta_long", "temps_long")
 
 
 def summer_days(d, from_year):
@@ -131,6 +133,34 @@ def ta_long_figure(names, temps):
     return fig
 
 
+def temps_long_figure(names, temps, sst_year, means):
+    """気温 (1930年代から) と、海面水温 (1982年から)・露点温度 (1984年から) を、同じ図に重ねる。"""
+    fig, axs = panels(names)
+    print("官署別: 傾き (℃/10年)  気温(全期間) / 気温(1982年以降) / 海面水温 / 露点温度")
+    for ax, s in zip(axs.ravel(), names):
+        ta = pd.Series(temps[(s, "平均気温")]).sort_index().dropna()
+        sa = trend_line(ax, pd.DataFrame({"Ta": ta}), "Ta", "#cc3311", f"気温({ta.index.min()}年〜)")
+        sst = sst_year[fp.STATION_SST[s]].dropna()
+        ss = trend_line(ax, pd.DataFrame({"SST": sst}), "SST", "#0077bb", f"海面水温({sst.index.min()}年〜)")
+        td = means[s]["Td"].dropna()
+        st = trend_line(ax, pd.DataFrame({"Td": td}), "Td", "#228833", f"露点温度({td.index.min()}年〜)")
+        ta82 = ta[ta.index >= 1982]
+        s82 = np.polyfit(ta82.index, ta82.values, 1)[0]
+        print(f"  {s}: {sa * 10:+.2f} / {s82 * 10:+.2f} / {ss * 10:+.2f} / {st * 10:+.2f}")
+        ax.set(title=f"{s} (海域: {fp.STATION_SST[s]})")
+        ax.legend(fontsize=6.5, loc="upper left")
+        ax.grid(alpha=.3)
+    lo = min(min(pd.Series(temps[(s, "平均気温")]).min(), sst_year[fp.STATION_SST[s]].min(), means[s]["Td"].min()) for s in names)
+    hi = max(max(pd.Series(temps[(s, "平均気温")]).max(), sst_year[fp.STATION_SST[s]].max(), means[s]["Td"].max()) for s in names)
+    axs[0, 0].set_ylim(lo - 1, hi + 4.5)
+    for ax in axs[:, 0]:
+        ax.set_ylabel("夏季(6〜8月)の平均 (℃)")
+    fig.tight_layout(rect=(0, .05, 1, 1))
+    fig.text(.01, .004, "赤=気温 (気象庁 月別値の3か月平均、1930年代〜)、青=海面水温 (最寄りの海域の夏の平均、1982年〜)、緑=露点温度 (時別値の夏の平均、1984年〜)。細い直線=直線の当てはめ、傾きは凡例。"
+             "\n露点温度は気温と相対湿度から求められた値で、相対湿度の記録は2013年前後で変わっている (年平均の段差に注意)。", fontsize=8)
+    return fig
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--dir", default=fp.SST_DIR, help="海面水温 *.txt のあるフォルダ")
@@ -151,12 +181,17 @@ def main():
     by = {s: d[d["station"] == s] for s in names}
 
     figs = []
-    if "ta_long" in a.what:
-        from fog_plot_ta_fog import TEMP_CSV, load_temps      # 循環importを避けるため、ここで読み込む
-        figs.append((ta_long_figure(names, load_temps(a.temps or TEMP_CSV)), "fog_year_ta_long.png"))
     means = {}
-    if "temps" in a.what or "gap" in a.what:
+    if "temps" in a.what or "gap" in a.what or "temps_long" in a.what:
         means = {s: yearly_means3(by[s], a.from_year).dropna() for s in names}
+    if "temps_long" in a.what:
+        from fog_plot_ta_fog import TEMP_CSV, load_temps      # 循環importを避けるため、ここで読み込む
+        sst_all = fp.summer(fp.load(a.dir))
+        sst_year = sst_all.groupby(sst_all.index.year).mean()
+        figs.append((temps_long_figure(names, load_temps(a.temps or TEMP_CSV), sst_year, means), "fog_year_temps_long.png"))
+    if "ta_long" in a.what:
+        from fog_plot_ta_fog import TEMP_CSV, load_temps
+        figs.append((ta_long_figure(names, load_temps(a.temps or TEMP_CSV)), "fog_year_ta_long.png"))
     if "temps" in a.what:
         figs.append((temps_figure(names, means), "fog_year_temps.png"))
     if "dt" in a.what:
