@@ -144,13 +144,13 @@ def main():
                     label, y0, y1 = period_label(bounds, i, last_year)
                     sm = heat_share(ax, n, k, tot_n[(s, i)], label, norm, cmap)
                     tot = tabs[(s, i)][1].values.sum() / tot_n[(s, i)] * 100
-                    ax.text(.5, 1.01, "視程1km未満の割合", transform=ax.transAxes, ha="center", va="bottom", fontsize=fs * .6)
-                    ax.text(.5, 1.12, f"合計 {tot:.1f}%", transform=ax.transAxes, ha="center", va="bottom", fontsize=fs * .95)
+                    ax.text(.5, 1.01, "視程1km未満の割合", transform=ax.transAxes, ha="center", va="bottom", fontsize=fs * .72)
+                    ax.text(.5, 1.14, f"合計 {tot:.1f}%", transform=ax.transAxes, ha="center", va="bottom", fontsize=fs * 1.1)
                     ticks = [t for t in range(-(-clo // 5) * 5, chi + 2, 5) if clo < t < chi + 1]
                     ax.set_xticks(ticks)
                     ax.set_yticks(ticks)
                     ax.tick_params(labelsize=fs * .8, labelleft=(i == 0))
-                    ax.set_title(label.replace("〜", "～").replace("年", ""), fontsize=fs * .85, pad=fs * 2.0)
+                    ax.set_title(label.replace("〜", "～").replace("年", ""), fontsize=fs * .85, pad=fs * 2.5)
                     ax.set_xlabel("気温 (℃)", fontsize=fs * .85)
                     ax.set_ylabel("海面水温 (℃)" if i == 0 else "", fontsize=fs * .85)
             left, right = (.075, .895) if a.split else (.05, .915)
