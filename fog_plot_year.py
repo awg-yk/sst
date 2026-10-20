@@ -4,12 +4,15 @@ fog_plot.py と同じフォルダに置いて実行します (露点温度は「
     python fog_plot_year.py                     # 3種類の図を画面に順に表示
     python fog_plot_year.py --what temps        # 気温・露点温度・海面水温の年平均だけ
     python fog_plot_year.py --what dt gap       # 「気温−海面水温」と「露点温度−海面水温」の年平均
+    python fog_plot_year.py --what ta_long      # 夏の平均気温だけ、1930年代から (気象庁 月別値の3か月平均 「東北地方3か月平均.csv」を使う)
+    python fog_plot_year.py --stations 八戸 宮古 大船渡 石巻 小名浜   # 官署を指定 (省略でデータのある官署すべて)
     python fog_plot_year.py --from-year 1990    # この年以降だけ使う
     python fog_plot_year.py --save-dir out      # 画面に出さずPNGを保存
 
 --what:
     temps  気温 (赤)・海面水温 (青)・露点温度 (緑) の年平均。3つがそろった観測時刻だけで平均する。
     dt     「気温 − 海面水温」の年平均。気温の観測時刻すべてを使う (露点温度は使わない。1982年から)。
+    ta_long 夏 (6〜8月) の平均気温だけの折れ線 (1930年代から)。気象庁 月別値の3か月平均 (東北地方3か月平均.csv) を使う。--from-year は使わない。
     gap    「露点温度 − 海面水温」の年平均 (空気が海面で冷やされる余地)。temps と同じ観測時刻。
 
 各官署のグラフ: 点と線=年平均 (観測時刻ごとに、その日の海面水温を対応させて平均)。細い直線は年との直線の当てはめで、傾きを ℃/10年 で書く。
@@ -24,7 +27,7 @@ import pandas as pd
 
 import fog_plot as fp
 
-WHAT = ("temps", "dt", "gap")
+WHAT = ("temps", "dt", "gap", "ta_long")
 
 
 def summer_days(d, from_year):
@@ -109,11 +112,32 @@ def diff_figure(names, series, ylabel, note, ylim, label):
     return fig
 
 
+def ta_long_figure(names, temps):
+    """夏の平均気温 (月別値の3か月平均) の年ごとの折れ線。1930年代から。"""
+    fig, axs = panels(names)
+    print("官署別: 夏の平均気温の傾き (℃/10年)  全期間")
+    for ax, s in zip(axs.ravel(), names):
+        v = pd.Series(temps[(s, "平均気温")]).sort_index().dropna()
+        m = pd.DataFrame({"Ta": v})
+        slope = trend_line(ax, m, "Ta", "#cc3311", "気温")
+        print(f"  {s}: {slope * 10:+.2f} ({v.index.min()}〜{v.index.max()}年, {len(v)}年)")
+        ax.set(title=f"{s} ({v.index.min()}年〜)")
+        ax.legend(fontsize=8, loc="upper left")
+        ax.grid(alpha=.3)
+    for ax in axs[:, 0]:
+        ax.set_ylabel("夏季(6〜8月)の平均気温 (℃)")
+    fig.tight_layout(rect=(0, .05, 1, 1))
+    fig.text(.01, .004, "気象庁 月別値の3か月平均 (6〜8月の平均気温)。点と線=年ごとの値、細い直線=直線の当てはめで、傾きは凡例 (℃/10年)。", fontsize=8)
+    return fig
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--dir", default=fp.SST_DIR, help="海面水温 *.txt のあるフォルダ")
     p.add_argument("--coast-dir", default=fp.COAST_DIR, help="沿岸官署の時別値CSVのフォルダ")
     p.add_argument("--what", nargs="*", choices=WHAT, default=list(WHAT), help="描く図 (省略で3種類すべて)")
+    p.add_argument("--stations", nargs="*", help="官署名 (省略で、データのある官署すべて)")
+    p.add_argument("--temps", help="ta_long で使う3か月平均気温のCSV (省略で 東北地方3か月平均.csv)")
     p.add_argument("--from-year", type=int, default=1982, help="この年以降を使う (既定 1982。露点温度は1984年から)")
     p.add_argument("--save-dir", help="画面に出さずPNGをこのフォルダに保存する")
     a = p.parse_args()
@@ -123,10 +147,14 @@ def main():
     if coast is None:
         raise SystemExit(f"沿岸官署のCSVが見つかりません: {a.coast_dir} (--coast-dir で指定)")
     d = fp.fog_dataset(fp.summer(fp.load(a.dir)), coast)
-    names = [s for s in fp.STATION_SST if s in set(d["station"])]
+    names = [s for s in fp.STATION_SST if s in set(d["station"]) and (not a.stations or s in a.stations)]
     by = {s: d[d["station"] == s] for s in names}
 
     figs = []
+    if "ta_long" in a.what:
+        from fog_plot_ta_fog import TEMP_CSV, load_temps      # 循環importを避けるため、ここで読み込む
+        figs.append((ta_long_figure(names, load_temps(a.temps or TEMP_CSV)), "fog_year_ta_long.png"))
+    means = {}
     if "temps" in a.what or "gap" in a.what:
         means = {s: yearly_means3(by[s], a.from_year).dropna() for s in names}
     if "temps" in a.what:
