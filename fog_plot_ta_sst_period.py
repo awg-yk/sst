@@ -4,7 +4,7 @@
 fog_plot.py と fog_plot_temp_sst.py と同じフォルダに置いて実行します。
 
 ■ コピペ用 (ポスターの図3: 八戸・宮古を1枚にまとめた版。out フォルダにPNGを保存)
-py fog_plot_ta_sst_period.py --stations 八戸 宮古 --periods 1989 2000 2008 2020 --poster --value share --combine --size-cm 37 27 --fontsize 26 --save-dir out
+py fog_plot_ta_sst_period.py --stations 八戸 宮古 --periods 1989 2000 2008 2020 --poster --value share --combine --size-cm 64 32 --fontsize 30 --save-dir out
 
 ■ コピペ用 (予備資料の図3: マスの中に数字(時間数)が入る版。官署ごとに1枚)
 py fog_plot_ta_sst_period.py --stations 八戸 宮古 --periods 1989 2000 2008 2020 --value share --save-dir out
@@ -145,7 +145,7 @@ def main():
                 ax.set_ylabel("海面水温 (℃)" if i == 0 else "", fontsize=fs)
                 if i == 0:      # 官署名は、各段の最初のパネルの左上 (点のない隅) に大きく書く
                     ax.text(.04, .95, s, transform=ax.transAxes, ha="left", va="top", fontsize=fs * 1.5, fontweight="bold", bbox=dict(facecolor="white", alpha=.85, edgecolor="none", pad=3))
-        fig.tight_layout(pad=.9, w_pad=.5, h_pad=.6, rect=(0, 0, .865, 1))
+        fig.tight_layout(pad=1.2, w_pad=.5, h_pad=2.6, rect=(0, 0, .885, 1))
         top, bot = axs[0, -1].get_position(), axs[-1, -1].get_position()
         cb = fig.colorbar(sm, cax=fig.add_axes([.895, bot.y0 + .05 * (top.y1 - bot.y0), .013, .9 * (top.y1 - bot.y0)]))
         cb.set_label("全時間に対する視程1km未満の割合 (%)", fontsize=fs * .75, labelpad=fs * .5)
